@@ -1,0 +1,20 @@
+# ==============================================================================
+# GRAFANA DASHBOARD PROVIDER PROVISIONING - TỰ ĐỘNG NẠP BẢNG ĐIỀU KHIỂN
+# Đề tài số 03: Website Quảng bá Sản phẩm bằng WordPress
+# Môn học: Triển khai và Quản trị Hệ thống Phần mềm
+# Sinh viên: Nông Quốc Tuấn | MSV: DTC245200059 | Lớp: KTPM K23C
+# ==============================================================================
+
+apiVersion: 1
+
+providers:
+  - name: 'WordPress Monitoring Dashboards'
+    orgId: 1
+    folder: 'WordPress System Monitoring'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

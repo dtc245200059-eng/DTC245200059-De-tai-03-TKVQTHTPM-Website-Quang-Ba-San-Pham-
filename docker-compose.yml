@@ -115,8 +115,11 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_EXPORTER_USER: ${MYSQL_EXPORTER_USER:-exporter}
+      MYSQL_EXPORTER_PASSWORD: ${MYSQL_EXPORTER_PASSWORD}
     volumes:
       - db_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
     networks:
       - backend-net
     security_opt:
@@ -128,17 +131,169 @@ services:
       retries: 5
       start_period: 30s
 
+  # ----------------------------------------------------------------------------
+  # DỊCH VỤ 5: MÁY CHỦ THU THẬP VÀ LƯU TRỮ METRICS (PROMETHEUS)
+  # ----------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.53.3
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - monitoring-net
+    depends_on:
+      - node-exporter
+      - cadvisor
+      - mysql-exporter
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # DỊCH VỤ 6: BẢNG ĐIỀU KHIỂN TRỰC QUAN HÓA CHỈ SỐ METRICS (GRAFANA)
+  # ----------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    networks:
+      - monitoring-net
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ----------------------------------------------------------------------------
+  # DỊCH VỤ 7: EXPORTER THU THẬP CHỈ SỐ HỆ THỐNG MÁY CHỦ (NODE EXPORTER)
+  # ----------------------------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - monitoring-net
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:9100/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ----------------------------------------------------------------------------
+  # DỊCH VỤ 8: EXPORTER THU THẬP CHỈ SỐ CONTAINER DOCKER (CADVISOR)
+  # ----------------------------------------------------------------------------
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    restart: unless-stopped
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:ro
+      - /dev/disk/:ro
+    networks:
+      - monitoring-net
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:8080/healthz || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # DỊCH VỤ 9: EXPORTER THU THẬP CHỈ SỐ CSDL MYSQL (MYSQL EXPORTER)
+  # Lưu ý bảo mật: Tài khoản exporter dùng quyền SELECT ON *.* để tương thích
+  # với các collectors hệ thống; không có quyền sửa/xóa nhưng có thể đọc toàn bộ
+  # CSDL (kể cả bảng WordPress). Giới hạn MAX_USER_CONNECTIONS 3 chống nghẽn pool.
+  # ----------------------------------------------------------------------------
+  mysql-exporter:
+    image: prom/mysqld-exporter:v0.15.1
+    container_name: mysql-exporter
+    restart: unless-stopped
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQL_EXPORTER_PASSWORD}
+    command:
+      - '--mysqld.address=mysql:3306'
+      - '--mysqld.username=${MYSQL_EXPORTER_USER:-exporter}'
+    networks:
+      - backend-net
+      - monitoring-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:9104/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
 # ------------------------------------------------------------------------------
 # KHAI BÁO PHÂN TÁCH MẠNG NỘI BỘ (NETWORK ISOLATION)
 # ------------------------------------------------------------------------------
 networks:
+  # Mạng giao tiếp giữa Reverse Proxy (Nginx) và các ứng dụng Web (WordPress, phpMyAdmin)
   frontend-net:
     driver: bridge
 
-  # Mạng nội bộ lưu chuyển dữ liệu CSDL
+  # Mạng nội bộ lưu chuyển dữ liệu CSDL (Cô lập hoàn toàn khỏi Internet bên ngoài)
   backend-net:
     driver: bridge
     internal: true
+
+  # Mạng nội bộ dành riêng cho hệ thống giám sát (Prometheus, Grafana, Exporters)
+  monitoring-net:
+    driver: bridge
 
 # ------------------------------------------------------------------------------
 # KHAI BÁO LƯU TRỮ BỀN VỮNG (PERSISTENT VOLUMES)
@@ -149,4 +304,10 @@ volumes:
     driver: local
   # Lưu trữ bảng CSDL MySQL (Không bị mất dữ liệu khi container recreate)
   db_data:
+    driver: local
+  # Lưu trữ cơ sở dữ liệu chuỗi thời gian TSDB của Prometheus
+  prometheus_data:
+    driver: local
+  # Lưu trữ cấu hình người dùng, sessions, dashboards tùy biến của Grafana
+  grafana_data:
     driver: local

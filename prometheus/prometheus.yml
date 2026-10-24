@@ -1,0 +1,48 @@
+# ==============================================================================
+# CẤU HÌNH THU THẬP CHỈ SỐ METRICS PROMETHEUS (prometheus.yml)
+# Đề tài số 03: Website Quảng bá Sản phẩm bằng WordPress
+# Môn học: Triển khai và Quản trị Hệ thống Phần mềm
+# Sinh viên: Nông Quốc Tuấn | MSV: DTC245200059 | Lớp: KTPM K23C
+# ==============================================================================
+
+global:
+  scrape_interval: 15s      # Chu kỳ thu thập metrics (15 giây phù hợp cho demo)
+  evaluation_interval: 15s  # Chu kỳ đánh giá quy tắc cảnh báo (rules)
+  scrape_timeout: 10s       # Thời gian chờ phản hồi tối đa trước khi timeout
+
+# Danh mục các tác vụ thu thập chỉ số (Scrape Targets)
+scrape_configs:
+  # 1. Tự giám sát máy chủ Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          environment: 'production'
+          service: 'monitoring-core'
+
+  # 2. Giám sát tài nguyên máy chủ host (CPU, RAM, Disk, Network) qua Node Exporter
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          environment: 'production'
+          tier: 'infrastructure'
+          instance: 'host-machine'
+
+  # 3. Giám sát tài nguyên container Docker (cAdvisor)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          environment: 'production'
+          tier: 'container-runtime'
+          instance: 'docker-engine'
+
+  # 4. Giám sát hiệu năng và trạng thái Cơ sở dữ liệu MySQL (MySQL Exporter)
+  - job_name: 'mysql-exporter'
+    static_configs:
+      - targets: ['mysql-exporter:9104']
+        labels:
+          environment: 'production'
+          tier: 'database'
+          instance: 'mysql-wordpress'

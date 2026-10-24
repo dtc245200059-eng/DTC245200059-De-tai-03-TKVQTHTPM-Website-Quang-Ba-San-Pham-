@@ -127,3 +127,28 @@ Vì đây là chứng chỉ SSL/TLS tự ký phục vụ học tập và demo (k
 2. Nhấn vào nút **"Advanced"** (Nâng cao).
 3. Chọn **"Proceed to shop.local (unsafe)"** hoặc **"Tiếp tục truy cập shop.local (không an toàn)"**.
 4. Trình duyệt sẽ tải trang web bình thường qua giao thức mã hóa HTTPS an toàn.
+
+---
+
+## 5. TRUY CẬP HỆ THỐNG GIÁM SÁT PROMETHEUS & GRAFANA (MỐC COMMIT 2)
+
+Hệ thống giám sát phục vụ demo môn học được cấu hình sẵn các bảng điều khiển trực quan:
+
+| Dịch vụ Giám sát | URL Truy cập Demo | Cổng Host | Cơ chế Xác thực & Hướng dẫn |
+| :--- | :--- | :---: | :--- |
+| **Prometheus Web UI** | `http://localhost:9090` hoặc `http://<IP_UBUNTU>:9090` | `9090` | Truy cập trực tiếp; kiểm tra trạng thái 4 Scrape Targets tại mục `Status` -> `Targets`. |
+| **Grafana Dashboard** | `http://localhost:3000` hoặc `http://<IP_UBUNTU>:3000` | `3000` | Đăng nhập bằng tài khoản quản trị thiết lập trong `.env`: <br>- **Username:** Giá trị `GRAFANA_ADMIN_USER` (mặc định `admin`) <br>- **Password:** Giá trị bí mật trong `GRAFANA_ADMIN_PASSWORD`. |
+
+### 5.1. Danh mục Bảng điều khiển (Dashboards) đã nạp sẵn tự động:
+Sau khi đăng nhập Grafana, điều hướng tới mục **Dashboards** -> thư mục **`WordPress System Monitoring`**:
+1. **`01. Giám sát Máy chủ (Host Infrastructure)`** (UID: `host-monitoring`):
+   - Đo chỉ số CPU Usage, RAM Usage, Root Disk %, System Uptime, CPU per Core, Memory Breakdown, Network I/O, Load Average (1m/5m/15m) từ `node-exporter`.
+2. **`02. Giám sát Container (cAdvisor)`** (UID: `container-monitoring`):
+   - Giám sát trạng thái và số lượng container Docker đang chạy, CPU Usage % từng container, Memory Working Set (`container_memory_working_set_bytes`), Network Traffic I/O (RX/TX) từ `cadvisor`.
+3. **`03. Giám sát Cơ sở dữ liệu (MySQL Overview)`** (UID: `mysql-monitoring`):
+   - Giám sát trạng thái hoạt động MySQL (`mysql_up`), Queries Per Second (QPS), Client Connections, Active Running Threads, Phân rã câu lệnh (Select, Insert, Update, Delete), InnoDB Buffer Pool Utilization, MySQL Network Throughput và Slow Queries Rate từ `mysql-exporter`.
+
+### 5.2. Khuyến cáo An toàn Bảo mật:
+- Các cổng `9090` (Prometheus) và `3000` (Grafana) được publish ra host nhằm phục vụ giảng viên kiểm tra và trình diễn demo trong khuôn khổ môn học.
+- **Trên môi trường vận hành thực tế (Production):** Các cổng này bắt buộc phải được đóng lại khỏi mạng công cộng (loại bỏ `ports:` trong Compose), chỉ cho phép truy cập qua VPN nội bộ hoặc định tuyến qua Nginx Reverse Proxy có phân quyền và mã hóa SSL/TLS.
+- **Lưu ý về tài khoản MySQL Exporter:** Tài khoản `exporter` được cấp `PROCESS, REPLICATION CLIENT, SELECT ON *.*` để tương thích với các collectors của `mysqld_exporter`. Tài khoản này không có quyền sửa/xóa dữ liệu, nhưng có quyền đọc dữ liệu toàn cục (bao gồm cả các bảng ứng dụng WordPress). Giới hạn `MAX_USER_CONNECTIONS 3` chỉ khống chế kết nối của riêng exporter nhằm bảo vệ connection pool, không hạn chế quyền đọc dữ liệu.

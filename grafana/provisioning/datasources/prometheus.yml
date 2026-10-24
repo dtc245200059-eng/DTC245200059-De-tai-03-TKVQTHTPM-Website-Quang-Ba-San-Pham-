@@ -1,0 +1,19 @@
+# ==============================================================================
+# GRAFANA DATASOURCE PROVISIONING - TỰ ĐỘNG KHỞI TẠO NGUỒN DỮ LIỆU PROMETHEUS
+# Đề tài số 03: Website Quảng bá Sản phẩm bằng WordPress
+# Môn học: Triển khai và Quản trị Hệ thống Phần mềm
+# Sinh viên: Nông Quốc Tuấn | MSV: DTC245200059 | Lớp: KTPM K23C
+# ==============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s

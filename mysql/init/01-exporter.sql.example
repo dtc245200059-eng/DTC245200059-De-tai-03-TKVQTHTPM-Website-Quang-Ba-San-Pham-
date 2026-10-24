@@ -1,0 +1,29 @@
+-- ==============================================================================
+-- LỆNH SQL THIẾT LẬP TÀI KHOẢN GIÁM SÁT MYSQL EXPORTER THỦ CÔNG
+-- Đề tài số 03: Website Quảng bá Sản phẩm bằng WordPress
+-- Môn học: Triển khai và Quản trị Hệ thống Phần mềm
+-- ==============================================================================
+-- Áp dụng khi cơ sở dữ liệu đã có dữ liệu sẵn (db_data đã khởi tạo từ trước):
+-- Đăng nhập bằng tài khoản root vào MySQL qua phpMyAdmin hoặc docker exec:
+--   docker compose exec -it mysql mysql -u root -p
+-- Và chạy các lệnh dưới đây (thay thế mật khẩu bằng giá trị trong .env):
+--
+-- ĐẶC TẢ PHẠM VI QUYỀN HẠN & ĐÁNH ĐỔI BẢO MẬT:
+-- 1. PROCESS: Cho phép xem danh sách luồng và tiến trình đang chạy trong MySQL.
+-- 2. REPLICATION CLIENT: Cho phép đọc trạng thái binlog và replication.
+-- 3. SELECT ON *.*: Cho phép đọc các bảng hệ thống (performance_schema,
+--    information_schema) phục vụ các collectors của mysqld_exporter.
+--    LƯU Ý BẢO MẬT: SELECT ON *.* là quyền đọc toàn cục, đồng nghĩa tài khoản này
+--    CÓ THỂ ĐỌC DỮ LIỆU ỨNG DỤNG (bao gồm cả các bảng WordPress). Tài khoản không
+--    có quyền sửa/xóa (INSERT/UPDATE/DELETE/DROP), nhưng có phạm vi đọc rộng.
+-- 4. WITH MAX_USER_CONNECTIONS 3: Giới hạn tối đa 3 kết nối đồng thời của riêng
+--    tài khoản exporter, ngăn exporter làm cạn kiệt connection pool. Giới hạn này
+--    không giới hạn quyền đọc và không thay thế cấu hình max_connections toàn server.
+-- ==============================================================================
+
+CREATE USER IF NOT EXISTS 'exporter'@'%' IDENTIFIED BY 'ThayTheBangMatKhauExporterManh' WITH MAX_USER_CONNECTIONS 3;
+GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
+FLUSH PRIVILEGES;
+
+-- Kiểm tra quyền hạn đã cấp:
+SHOW GRANTS FOR 'exporter'@'%';
