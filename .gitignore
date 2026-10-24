@@ -1,0 +1,53 @@
+# ==============================================================================
+# Git Ignore - Đề tài số 03: Website Quảng bá Sản phẩm bằng WordPress
+# Môn học: Triển khai và Quản trị Hệ thống Phần mềm
+# ==============================================================================
+
+# 1. Quản lý bí mật và biến môi trường (Bảo vệ thông tin đăng nhập)
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# 2. Chứng chỉ, khóa bí mật SSL/TLS và tệp xác thực (Không đưa lên Git)
+nginx/ssl/*.key
+nginx/ssl/*.crt
+nginx/ssl/*.csr
+nginx/ssl/*.pem
+!nginx/ssl/.gitkeep
+nginx/.htpasswd
+nginx/*.htpasswd
+!.htpasswd.example
+!nginx/.htpasswd.example
+
+# 3. Dữ liệu thời gian chạy (Runtime volumes & Persistent data)
+data/
+db_data/
+wp_data/
+prometheus_data/
+grafana_data/
+loki_data/
+
+# 4. Tệp nhật ký và sao lưu tạm thời (Logs & Backups)
+*.log
+*.pid
+*.bak
+*.backup
+*.sql
+*.dump
+
+# 5. Tệp hệ điều hành và IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
+
+# 6. Học liệu tham khảo và tệp ghi chú mật khẩu gốc (Tránh rò rỉ Tailieu/Pass.txt)
+Tailieu/
+
+# 7. Cấu hình môi trường AI Agent IDE cục bộ
+.agents/

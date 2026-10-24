@@ -1,0 +1,2 @@
+# Thư mục chứa chứng chỉ SSL/TLS tự ký (selfsigned.crt và selfsigned.key)
+# Các tệp *.crt và *.key đã được .gitignore loại trừ để đảm bảo an toàn.
