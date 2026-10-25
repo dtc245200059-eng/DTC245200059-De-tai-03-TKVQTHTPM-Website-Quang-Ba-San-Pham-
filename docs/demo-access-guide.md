@@ -225,3 +225,108 @@ Nhập các câu lệnh sau vào khung soạn thảo LogQL và nhấn **"Run que
   * Alloy lưu offset đọc log bền vững trên named volume `alloy_data` gắn vào `/var/lib/alloy/data` (cấu hình qua cờ `--storage.path`).
   * Do Alloy chỉ mở kết nối mạng TCP tới proxy (`tcp://docker-socket-proxy:2375`) mà không cần đọc socket file Unix, tiến trình chạy dưới user unprivileged `alloy` (UID `473`, GID `473`), không cần đặc quyền root (`0:0`).
 * **Lưu ý kiểm thử:** Các quy tắc regex allowlist đã được kiểm tra bằng test script độc lập. Do môi trường Windows hiện tại không cài đặt sẵn công cụ `haproxy` CLI cục bộ (`haproxy -c`), parser nội bộ của HAProxy chưa thể được kiểm chứng tĩnh và không coi thử nghiệm regex Python là bằng chứng tương đương. Hiệu năng thực tế và kết nối API sẽ được kiểm chứng chính thức trong bước chạy runtime trên máy chủ Ubuntu.
+
+### 6.5. Cấu hình Giới hạn và Quay vòng Nhật ký Cục bộ Docker (Log Rotation - Đợt 1A):
+- Toàn bộ 12 dịch vụ trong hệ thống đều được cấu hình giới hạn xoay vòng log cục bộ qua driver `json-file`:
+  ```yaml
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+  ```
+- **Mục đích:** Thiết lập mức giới hạn danh nghĩa khoảng 30 MB mỗi container theo cấu hình `max-size: 10m`, `max-file: 3` (tổng tương ứng khoảng 360 MB cho 12 container theo cấu hình dự kiến, không phải bảo đảm tuyệt đối về toàn bộ dung lượng log trên host), giúp giảm thiểu rủi ro cạn kiệt đĩa máy chủ do log dồn ứ lâu ngày.
+- **Lưu ý về hành vi và tác động runtime:**
+  - `max-size: 10m` và `max-file: 3` chỉ giới hạn dung lượng log cục bộ của Docker daemon, **không thay thế chính sách retention 7 ngày (168h) của Loki**. Grafana Alloy đọc và stream log tức thời về Loki, nên dữ liệu phục vụ phân tích/điều tra sự cố được quản lý độc lập tại Loki.
+  - Khi log cục bộ quay vòng, các log cũ nhất trong Docker engine có thể bị loại bỏ; không tuyên bố toàn bộ log đã được sao lưu vĩnh viễn trên host.
+  - Cấu hình logging mới chỉ áp dụng cho container được tạo mới hoặc tạo lại (`recreate`). Đợt này chỉ thực hiện cấu hình tĩnh, chưa chạy container và chưa kiểm chứng runtime.
+
+### 6.6. Cấu hình Giới hạn Tài nguyên CPU, RAM và PIDs (Đợt 1B):
+Hệ thống thiết lập giới hạn tài nguyên trực tiếp tại cấp `services.<service>` trong `docker-compose.yml` (`mem_reservation`, `mem_limit`, `cpus`, `pids_limit`), không khai báo trùng lặp `deploy.resources`:
+
+| Dịch vụ | Memory Reservation | Memory Hard Limit | CPU Limit (Quota) | PIDs Limit | Rủi ro chính khi OOM-Kill |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `mysql` | 384M | 768M | 1.00 | 150 | Rất cao: hỏng bảng CSDL, ngắt kết nối WordPress |
+| `wordpress` | 256M | 512M | 1.00 | 100 | Cao: gián đoạn website, Nginx trả về lỗi 502/504 |
+| `phpmyadmin` | 128M | 256M | 0.50 | 60 | Trung bình: mất phiên quản trị database |
+| `nginx` | 32M | 128M | 0.50 | 50 | Nghiêm trọng: sập Single Entry Point toàn hệ thống |
+| `prometheus` | 256M | 512M | 0.50 | 100 | Trung bình-Cao: mất metrics in-memory chưa flush |
+| `grafana` | 128M | 256M | 0.50 | 100 | Trung bình: mất kết nối dashboard web UI |
+| `loki` | 256M | 512M | 0.75 | 100 | Trung bình-Cao: mất buffer log ingester |
+| `alloy` | 128M | 256M | 0.50 | 100 | Trung bình: nghẽn stream chuyển tiếp log |
+| `docker-socket-proxy` | 24M | 64M | 0.25 | 30 | Cao: Alloy mất quyền đọc Docker Engine API |
+| `cadvisor` | 64M | 192M | 0.30 | 50 | Thấp-Trung bình: gián đoạn metrics container |
+| `node-exporter` | 24M | 64M | 0.20 | 30 | Thấp: gián đoạn metrics host |
+| `mysql-exporter` | 24M | 64M | 0.20 | 30 | Thấp: gián đoạn metrics MySQL |
+| **TỔNG CỘNG** | **1.704 MB (~1.66 GB)** | **3.584 MB (~3.50 GB)** | **6.20 cores** | **900 PIDs** | *(Tổng ngân sách chỉ tính 12 dịch vụ đã liệt kê)* |
+
+**Ý nghĩa kỹ thuật và nguyên tắc an toàn:**
+- **`mem_limit` (Hard Limit):** Ngưỡng chặn cứng; nếu container chạm trần này, Linux OOM Killer sẽ can thiệp tắt tiến trình (`OOMKilled: true`, exit code 137).
+- **`mem_reservation` (Soft Limit):** Ngưỡng gợi ý bộ nhớ tối thiểu khi host thiếu hụt RAM; **không khẳng định RAM được bảo đảm dành riêng vật lý** cho container.
+- **`cpus` (CFS Bandwidth Quota):** Giới hạn tỷ lệ thời gian CPU được cấp phát trong chu kỳ 100ms; khi chạm trần, container bị throttle chứ không bị kill.
+- **`pids_limit`:** Ngăn chặn fork bomb và kiểm soát số luồng/tiến trình tối đa trong container namespace.
+- **Ranh giới tài nguyên máy chủ host:**
+  - Cấu hình máy chủ Ubuntu đã đo thực tế: 8 CPU logic, RAM 6.2 GiB, RAM khả dụng 4.9 GiB, swap 4 GiB, phân vùng `/` còn trống 33 GB.
+  - Tổng Hard Limit của 12 dịch vụ là 3.584 MB (~3.50 GB), chiếm khoảng 73% lượng RAM khả dụng (4.9 GiB), để lại khoảng đệm an toàn hơn 1.3 GiB cho Kernel, Systemd, Docker Daemon và Page Cache.
+  - Hệ thống **không dựa vào swap** để coi như có thêm RAM vật lý (swap chỉ là vùng đệm khẩn cấp, việc swap container ra đĩa sẽ làm giảm sút hiệu năng nghiêm trọng).
+  - Cấu hình mới chỉ có hiệu lực khi container được tạo mới hoặc tạo lại (`recreate`). Các thông số trên là mức thiết lập ban đầu, chưa qua thử nghiệm hiệu năng hay kiểm chứng mức sử dụng thực tế và cần được theo dõi, đo đạc lại bằng lệnh `docker stats` khi chạy runtime trên máy chủ Ubuntu.
+
+### 6.7. Cơ chế Bảo mật Nginx Reverse Proxy: Rate Limiting, XML-RPC & Timeouts (Đợt 2):
+
+Hệ thống đã triển khai các quy tắc hardening tại tầng biên Nginx Reverse Proxy (`nginx/nginx.conf`):
+
+#### 1. Chính sách Rate Limiting cho Đăng nhập WordPress:
+- **Khai báo bộ nhớ:** `limit_req_zone $binary_remote_addr zone=wp_login:10m rate=5r/s;`
+  - Theo tài liệu chuẩn Nginx (`ngx_http_limit_req_module`), trên nền tảng 64-bit mỗi trạng thái lưu trữ chiếm 128 bytes (1 MB lưu được ~8.000 trạng thái). Do đó, vùng nhớ 10MB lưu trữ và theo dõi được khoảng **80.000 địa chỉ IP** đồng thời (thay vì 160.000 vốn là định mức của nền tảng 32-bit với trạng thái 64-byte).
+- **Phạm vi áp dụng:** Chỉ áp dụng cục bộ cho endpoint `location = /wp-login.php`, không áp dụng cho toàn bộ website nhằm tránh làm ảnh hưởng tới người dùng duyệt trang sản phẩm.
+- **Bản chất kỹ thuật:** Đây là cơ chế giới hạn tốc độ tần suất yêu cầu HTTP (HTTP request rate limiting) theo địa chỉ IP nguồn tại tầng Nginx Reverse Proxy, **hoàn toàn không phải là bộ đếm số lần đăng nhập thất bại** (failed login attempts counter / account lockout). Nginx không giải mã nội dung form hay kiểm tra tính đúng/sai của tài khoản/mật khẩu WordPress.
+- **Tham số `burst=10 nodelay`:**
+  - Cho phép người dùng gửi một đợt tối đa 10 requests đột biến mà không bị trễ thời gian phản hồi (no artificial delay).
+  - Khi tần suất vượt quá ngưỡng giới hạn (vượt mức 10 requests burst trên tốc độ 5 req/s), Nginx lập tức từ chối yêu cầu và phản hồi mã **HTTP 429 Too Many Requests** (`limit_req_status 429;`).
+- **Lưu ý ranh giới bảo mật:** Giới hạn này là biện pháp giảm tốc độ request (rate throttling) làm chậm các cuộc tấn công quét từ điển từ một địa chỉ IP đơn lẻ; nó **không ngăn chặn triệt để brute-force**, đặc biệt là tấn công brute-force phân tán (Distributed Brute-Force từ botnet nhiều IP) hoặc tấn công tốc độ chậm (low-and-slow). Hệ thống vẫn cần kết hợp với mật khẩu phức tạp, CAPTCHA, xác thực hai yếu tố (MFA) hoặc plugin bảo mật chuyên dụng ở tầng ứng dụng WordPress.
+- **Trạng thái kiểm thử:** Mã HTTP 429 và số lượng request trong kịch bản kiểm thử (ví dụ: gửi 15 request liên tục dự kiến nhận 10 request 200 OK và các request sau nhận 429) là **kết quả kỳ vọng trên lý thuyết cấu hình**, chưa phải bằng chứng thực nghiệm runtime do chưa khởi chạy container và chưa chạy lệnh test trên máy Ubuntu.
+
+#### 2. Kiểm soát và Vô hiệu hóa WordPress XML-RPC:
+- **Cấu hình:** `location = /xmlrpc.php { deny all; return 403; }` trên các server block WordPress (`shop.local`, `localhost`).
+- **Cơ sở lựa chọn:** Đồ án không có nhu cầu tích hợp ứng dụng di động bên ngoài hay pingback/trackback blog. Việc vô hiệu hóa XML-RPC giúp loại bỏ nguy cơ tấn công brute-force amplification (qua phương thức `system.multicall` thử hàng trăm mật khẩu trong 1 request) và tấn công từ chối dịch vụ phản xạ (Pingback Reflection DDoS).
+- **Phạm vi hiệu lực:** Sử dụng so khớp chính xác (`= /xmlrpc.php`), hoàn toàn không làm gián đoạn `/wp-login.php`, giao diện quản trị `/wp-admin/` hay WordPress REST API (`/wp-json/`).
+- **Ranh giới:** Không tuyên bố việc chặn XML-RPC giải quyết được mọi kỹ thuật tấn công đoán mật khẩu; các vector qua giao diện web hoặc REST API vẫn cần được bảo vệ độc lập.
+
+#### 3. Rà soát Timeouts và Buffers:
+- **Khả năng tải lên:** Giữ nguyên `client_max_body_size 64M;` để đảm bảo tương thích hoàn toàn với nhu cầu upload ảnh sản phẩm, themes/plugins WordPress và import file dump database qua phpMyAdmin.
+- **Cấu hình Timeouts:**
+  - `client_header_timeout 15s;`, `client_body_timeout 15s;`, `send_timeout 15s;`
+  - *Ý nghĩa:* Rút ngắn thời gian nhàn rỗi cho phép giữa các lần đọc/ghi dữ liệu, giúp Nginx nhanh chóng giải phóng worker connections bị chiếm giữ bởi các client chậm (giảm thiểu rủi ro Slowloris).
+  - *Lưu ý kỹ thuật:* Timeouts là thời gian chờ giữa 2 thao tác I/O liên tiếp, không phải là tổng thời gian truyền tải tệp tin; việc upload file 64MB hợp lệ qua kết nối bình thường hoàn toàn không bị ảnh hưởng.
+- **Cấu hình Buffers:**
+  - `client_body_buffer_size 128k;`: Giúp xử lý các form POST WordPress và API JSON in-memory.
+  - `client_header_buffer_size 2k;` và `large_client_header_buffers 4 16k;`: Đảm bảo tiếp nhận các chuỗi cookie xác thực dài của WordPress và phpMyAdmin mà không gặp lỗi 400 Bad Request hoặc 414 Request-URI Too Large.
+  - *Lưu ý:* Việc tinh chỉnh buffer nhằm tối ưu I/O và hạn chế ghi đĩa tạm, không được coi là biện pháp đủ để ngăn chặn tấn công buffer overflow hay mọi biến thể của tấn công Slowloris.
+
+### 6.8. Thu hẹp Đặc quyền Linux Capabilities (Principle of Least Privilege - Đợt 3):
+
+Nhằm tăng cường phòng thủ chiều sâu (defense-in-depth) trong trường hợp container bị khai thác mã độc, hệ thống đã cấu hình loại bỏ các Linux capabilities (`cap_drop: [ALL]`) cho 7 dịch vụ giám sát và logging trong `docker-compose.yml`:
+
+- **Bản chất kỹ thuật của `cap_drop: [ALL]`:**
+  - Cấu hình này loại bỏ các Linux capabilities được cấp mặc định cho container.
+  - Tiến trình bên trong container vẫn có thể sử dụng các system calls thông thường, giao tiếp mạng và truy cập tài nguyên được cho phép bởi UID/GID, filesystem permissions (DAC), cgroups, namespaces và cấu hình container.
+- **Ranh giới an toàn:**
+  - Đây là một lớp phòng thủ chiều sâu, **không phải bảo đảm loại bỏ mọi nguy cơ**.
+  - Đối với HAProxy Docker Socket Proxy, `cap_drop` **không thay thế** allowlist Docker API: nếu HAProxy bị xâm nhập, những endpoint vẫn được cho phép có thể tiếp tục bị gọi.
+
+| Dịch vụ | Trạng thái Capabilities | Căn cứ kỹ thuật & Ranh giới an toàn |
+| :--- | :---: | :--- |
+| **`prometheus`** | `cap_drop: [ALL]` | Chạy unprivileged (`nobody`), cổng 9090, ghi TSDB qua quyền DAC volume. Không có dấu hiệu cần capability đặc biệt. |
+| **`grafana`** | `cap_drop: [ALL]` | Chạy unprivileged (`grafana`), cổng 3000, ghi SQLite/dashboards qua quyền DAC volume. |
+| **`loki`** | `cap_drop: [ALL]` | Chạy unprivileged (`loki`), cổng 3100, ghi chunks log qua quyền DAC volume. |
+| **`alloy`** | `cap_drop: [ALL]` | Chạy unprivileged (`alloy`), cổng 12345, kết nối TCP tới Socket Proxy. Không cần raw/mount sockets. |
+| **`mysql-exporter`**| `cap_drop: [ALL]` | Chạy unprivileged (`nobody`), cổng 9104, chỉ gửi truy vấn SQL qua kết nối TCP `mysql:3306`. |
+| **`node-exporter`** | `cap_drop: [ALL]` | Đọc sysfs/procfs (`ro`), cổng 9100. Khả năng thu thập metrics phụ thuộc vào quyền đọc của từng mount và danh mục collectors được kích hoạt (không khẳng định mọi tệp đều có mode `0444`). |
+| **`docker-socket-proxy`**| `cap_drop: [ALL]` | Chạy `user: "0:0"` và lắng nghe cổng 2375 (high port, không cần `NET_BIND_SERVICE`). Khả năng truy cập thực tế vào `/var/run/docker.sock` phụ thuộc quyền sở hữu, mode của socket trên host Ubuntu và cấu hình user namespace/remapping của Docker daemon (cần xác minh runtime trên Ubuntu). `cap_drop` không thay thế allowlist Docker API. |
+| **`nginx`** | *Giữ nguyên* | Giữ nguyên bộ capability mặc định để tránh phá vỡ tương thích. Master process có khả năng cần `NET_BIND_SERVICE` (cổng 80/443), `SETUID`/`SETGID` để chuyển đổi worker; cần kiểm tra hành vi runtime riêng trước khi thu hẹp. |
+| **`wordpress`** | *Giữ nguyên* | Giữ nguyên bộ capability mặc định để tránh phá vỡ tương thích. Apache master có khả năng cần `NET_BIND_SERVICE`, `SETUID`/`SETGID` để quản lý worker pool `www-data`; cần kiểm tra riêng. |
+| **`phpmyadmin`** | *Giữ nguyên* | Giữ nguyên bộ capability mặc định để tránh phá vỡ tương thích; Apache master có khả năng cần các quyền tương tự WordPress. |
+| **`mysql`** | *Giữ nguyên* | Giữ nguyên bộ capability mặc định để tránh phá vỡ tương thích. Daemon có khả năng cần `SETUID`, `SETGID`, `CHOWN`, `SYS_NICE` cho entrypoint init và điều phối luồng; cần xác minh runtime. |
+| **`cadvisor`** | *Giữ nguyên* | Giữ nguyên bộ capability mặc định để tránh phá vỡ tương thích. Có khả năng cần `DAC_OVERRIDE`, `SYS_ADMIN` để truy cập cgroups hierarchy, Docker storage và disk stats; cần kiểm tra runtime riêng (tuyệt đối không cấp `privileged: true`). |
+
+*Lưu ý:* Việc áp dụng `cap_drop: [ALL]` là cấu hình tĩnh, chưa qua kiểm chứng runtime bằng lệnh `capsh` hoặc `docker inspect` trên container đang chạy thực tế trên máy Ubuntu. Không thay đổi mount socket hoặc user của proxy trong lượt này; cần xác minh runtime trên Ubuntu.

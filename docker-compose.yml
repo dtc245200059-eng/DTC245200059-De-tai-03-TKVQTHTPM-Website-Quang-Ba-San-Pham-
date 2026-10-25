@@ -35,6 +35,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 32M
+    mem_limit: 128M
+    cpus: 0.50
+    pids_limit: 50
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 2: ỨNG DỤNG WEBSITE QUẢNG BÁ SẢN PHẨM (WORDPRESS)
@@ -71,6 +80,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 256M
+    mem_limit: 512M
+    cpus: 1.00
+    pids_limit: 100
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 3: CÔNG CỤ QUẢN TRỊ CƠ SỞ DỮ LIỆU PHPMYADMIN
@@ -98,6 +116,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 128M
+    mem_limit: 256M
+    cpus: 0.50
+    pids_limit: 60
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 4: HỆ QUẢN TRỊ CƠ SỞ DỮ LIỆU MYSQL
@@ -130,6 +157,15 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 384M
+    mem_limit: 768M
+    cpus: 1.00
+    pids_limit: 150
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 5: MÁY CHỦ THU THẬP VÀ LƯU TRỮ METRICS (PROMETHEUS)
@@ -158,12 +194,23 @@ services:
       - mysql-exporter
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:9090/-/healthy || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 256M
+    mem_limit: 512M
+    cpus: 0.50
+    pids_limit: 100
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 6: BẢNG ĐIỀU KHIỂN TRỰC QUAN HÓA CHỈ SỐ METRICS (GRAFANA)
@@ -190,12 +237,23 @@ services:
         condition: service_healthy
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:3000/api/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 128M
+    mem_limit: 256M
+    cpus: 0.50
+    pids_limit: 100
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 7: EXPORTER THU THẬP CHỈ SỐ HỆ THỐNG MÁY CHỦ (NODE EXPORTER)
@@ -217,12 +275,23 @@ services:
       - monitoring-net
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:9100/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 24M
+    mem_limit: 64M
+    cpus: 0.20
+    pids_limit: 30
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 8: EXPORTER THU THẬP CHỈ SỐ CONTAINER DOCKER (CADVISOR)
@@ -247,6 +316,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 64M
+    mem_limit: 192M
+    cpus: 0.30
+    pids_limit: 50
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 9: EXPORTER THU THẬP CHỈ SỐ CSDL MYSQL (MYSQL EXPORTER)
@@ -271,12 +349,23 @@ services:
         condition: service_healthy
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:9104/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 24M
+    mem_limit: 64M
+    cpus: 0.20
+    pids_limit: 30
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 10: MÁY CHỦ THU THẬP VÀ LƯU TRỮ NHẬT KÝ (GRAFANA LOKI)
@@ -294,12 +383,23 @@ services:
       - monitoring-net
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:3100/ready || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 256M
+    mem_limit: 512M
+    cpus: 0.75
+    pids_limit: 100
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 11: AGENT THU GOM VÀ CHUYỂN TIẾP NHẬT KÝ (GRAFANA ALLOY)
@@ -326,12 +426,23 @@ services:
         condition: service_healthy
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/12345' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 128M
+    mem_limit: 256M
+    cpus: 0.50
+    pids_limit: 100
 
   # ----------------------------------------------------------------------------
   # DỊCH VỤ 12: DOCKER SOCKET PROXY TRUNG GIAN (HAPROXY STRICT ALLOWLIST)
@@ -348,12 +459,23 @@ services:
       - docker-api-net
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:2375/_ping || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_reservation: 24M
+    mem_limit: 64M
+    cpus: 0.25
+    pids_limit: 30
 
 
 # ------------------------------------------------------------------------------

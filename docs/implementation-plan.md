@@ -138,6 +138,66 @@
   * `Tích hợp hệ thống log tập trung Loki, Grafana Alloy qua HAProxy Allowlist và LogQL (Mốc Commit 3)`
 
 ### Giai đoạn 6: Triển khai Hardening và Bảo mật Hệ thống
+* **Đợt 1A: Cấu hình Docker Log Rotation cho toàn bộ 12 dịch vụ [ĐÃ HOÀN THÀNH CẤU HÌNH TĨNH]:**
+  * Thiết lập driver `json-file` đồng nhất với `max-size: "10m"` và `max-file: "3"` cho tất cả 12 services trong `docker-compose.yml`.
+  * Khống chế mức giới hạn danh nghĩa khoảng 30 MB mỗi container theo cấu hình `max-size: "10m"`, `max-file: "3"` (tổng tương ứng khoảng 360 MB cho 12 container theo cấu hình dự kiến, không phải bảo đảm tuyệt đối về toàn bộ dung lượng log trên host).
+  * **Lưu ý hành vi và tác động runtime:**
+    * Giới hạn log Docker cục bộ này độc lập và **không thay thế chính sách retention 7 ngày (168h) của Loki**.
+    * Khi log quay vòng, các log cũ nhất trong Docker engine cục bộ sẽ bị loại bỏ; không tuyên bố toàn bộ log được sao lưu vĩnh viễn trên host.
+    * Cấu hình mới chỉ áp dụng cho container được tạo mới hoặc tạo lại (`recreate`); chưa qua kiểm chứng runtime trong đợt sửa tĩnh này.
+* **Đợt 1B: Áp dụng Giới hạn Tài nguyên (CPU, RAM, PIDs) cho toàn bộ 12 dịch vụ [ĐÃ HOÀN THÀNH CẤU HÌNH TĨNH]:**
+  * Khai báo trực tiếp 4 thông số tại cấp `services.<service>` trong `docker-compose.yml`: `mem_reservation`, `mem_limit`, `cpus`, `pids_limit` (không dùng lặp `deploy.resources`).
+  * **Bảng ngân sách tài nguyên tiêu chuẩn:**
+    * `mysql`: Reservation 384M | Hard limit 768M | CPU 1.00 | PIDs 150
+    * `wordpress`: Reservation 256M | Hard limit 512M | CPU 1.00 | PIDs 100
+    * `phpmyadmin`: Reservation 128M | Hard limit 256M | CPU 0.50 | PIDs 60
+    * `nginx`: Reservation 32M | Hard limit 128M | CPU 0.50 | PIDs 50
+    * `prometheus`: Reservation 256M | Hard limit 512M | CPU 0.50 | PIDs 100
+    * `grafana`: Reservation 128M | Hard limit 256M | CPU 0.50 | PIDs 100
+    * `loki`: Reservation 256M | Hard limit 512M | CPU 0.75 | PIDs 100
+    * `alloy`: Reservation 128M | Hard limit 256M | CPU 0.50 | PIDs 100
+    * `docker-socket-proxy`: Reservation 24M | Hard limit 64M | CPU 0.25 | PIDs 30
+    * `cadvisor`: Reservation 64M | Hard limit 192M | CPU 0.30 | PIDs 50
+    * `node-exporter`: Reservation 24M | Hard limit 64M | CPU 0.20 | PIDs 30
+    * `mysql-exporter`: Reservation 24M | Hard limit 64M | CPU 0.20 | PIDs 30
+  * **Tổng ngân sách phân bổ (chỉ tính 12 dịch vụ đã liệt kê):**
+    * Tổng Reservation: **1.704 MB (~1.66 GB)**
+    * Tổng Hard Limit RAM: **3.584 MB (~3.50 GB)**
+    * Tổng CPU Quota: **6.20 cores**
+    * Tổng PIDs Limit: **900 PIDs**
+  * **Cơ chế kỹ thuật và ranh giới an toàn:**
+    * `mem_limit` là ngưỡng chặn cứng (hard limit); vượt quá mức này container sẽ bị Linux OOM Killer tắt tiến trình (`OOMKilled: true`, exit code 137). Nguy cơ cao nhất thuộc về MySQL (hỏng dữ liệu CSDL) và WordPress/Nginx (gián đoạn dịch vụ web).
+    * `mem_reservation` là soft limit gợi ý cho kernel khi thu hồi page cache, **không khẳng định RAM được bảo đảm dành riêng vật lý** cho container nếu host thiếu hụt bộ nhớ.
+    * Hệ thống **không dựa vào swap** để coi như có thêm RAM vật lý (swap chỉ là vùng đệm chống crash tức thời, lạm dụng swap gây suy giảm I/O trầm trọng).
+    * Trên môi trường máy Ubuntu đã đo (8 CPU logic, RAM 6.2 GiB, RAM khả dụng 4.9 GiB, swap 4 GiB, `/` trống 33 GB), tổng Hard Limit 3.584 MB nằm trong phạm vi an toàn, để lại khoảng dự phòng hơn 1.3 GiB khả dụng cho OS và Docker Engine.
+    * Các container đang chạy sẽ **không tự động nhận giới hạn mới** nếu chưa được tạo lại (`recreate`). Các giá trị trên là cấu hình khởi đầu, cần được đo đạc lại bằng `docker stats` khi chạy runtime thực tế.
+* **Đợt 2: Hardening Nginx Reverse Proxy (Rate Limiting, XML-RPC & Timeouts) [ĐÃ HOÀN THÀNH CẤU HÌNH TĨNH]:**
+  * **Rate Limiting đăng nhập WordPress:** Khai báo vùng nhớ `limit_req_zone $binary_remote_addr zone=wp_login:10m rate=5r/s;` trong khối `http` (trên nền tảng 64-bit, mỗi trạng thái chiếm 128 bytes, vùng 10MB lưu trữ ~80.000 địa chỉ IP theo dõi) và áp dụng `limit_req zone=wp_login burst=10 nodelay;` tại `location = /wp-login.php`.
+    * Đặt `limit_req_status 429;` (Too Many Requests).
+    * Áp dụng cờ `nodelay`: Cho phép xử lý ngay lập tức các yêu cầu trong ngưỡng burst (tối đa 10 request đột biến) mà không tạo độ trễ nhân tạo, đồng thời từ chối lập tức các request vượt ngưỡng để làm chậm các công cụ quét tự động.
+    * Ghi nhận rõ: Đây là cơ chế giới hạn tốc độ tần suất yêu cầu HTTP theo địa chỉ IP nguồn, **hoàn toàn không phải bộ đếm số lần đăng nhập thất bại** (không can thiệp vào logic xác thực mật khẩu của WordPress). Giới hạn này **không ngăn chặn triệt để brute-force** (đặc biệt là brute-force phân tán botnet) và không thay thế MFA hay bảo mật tầng ứng dụng.
+  * **Kiểm soát & Vô hiệu hóa XML-RPC:** Bổ sung `location = /xmlrpc.php { deny all; return 403; }` trên các virtual host WordPress (`shop.local`, `localhost`).
+    * Do đồ án quảng bá sản phẩm không có nhu cầu sử dụng remote publishing, trackback/pingback hoặc ứng dụng di động bên ngoài, giao thức XML-RPC được tắt triệt để nhằm triệt tiêu nguy cơ tấn công brute-force amplification (`system.multicall`) và Pingback Reflection DDoS.
+    * Quy tắc này sử dụng exact match, hoàn toàn không ảnh hưởng tới `/wp-login.php`, `/wp-admin/` hay REST API `/wp-json/`. Không tuyên bố chặn XML-RPC là giải quyết mọi hình thức brute-force.
+  * **Rà soát & Tối ưu Timeouts và Buffers:**
+    * Giữ nguyên `client_max_body_size 64M;` để đảm bảo upload ảnh sản phẩm WordPress và import database phpMyAdmin.
+    * Thiết lập `client_header_timeout 15s;`, `client_body_timeout 15s;`, `send_timeout 15s;` nhằm thu hồi nhanh các kết nối nhàn rỗi, giảm thiểu tác động của các kỹ thuật giữ kết nối chậm kiểu Slowloris.
+    * Thiết lập `client_body_buffer_size 128k;`, `client_header_buffer_size 2k;`, `large_client_header_buffers 4 16k;` để xử lý mượt mà các cookie WordPress/phpMyAdmin dài mà không phát sinh lỗi 400/414.
+    * Phân biệt rõ: Timeouts là thời gian chờ giữa các lần đọc/ghi, không phải giới hạn kích thước request; buffer nhỏ hơn không đủ để ngăn buffer overflow hay mọi biến thể Slowloris.
+* **Đợt 3: Thu hẹp Linux Capabilities (Principle of Least Privilege) [ĐÃ HOÀN THÀNH CẤU HÌNH TĨNH]:**
+  * Áp dụng `cap_drop: [ALL]` cho 7 dịch vụ: `prometheus`, `grafana`, `loki`, `alloy`, `mysql-exporter`, `node-exporter`, `docker-socket-proxy`.
+  * **Cơ chế kỹ thuật và ranh giới bảo mật:**
+    * `cap_drop: [ALL]` loại bỏ toàn bộ các Linux capabilities được cấp mặc định cho container. Tiến trình bên trong container vẫn có thể thực thi các system calls thông thường, giao tiếp mạng và truy cập các tài nguyên được cho phép bởi UID/GID, filesystem permissions (DAC), cgroups, namespaces và cấu hình container.
+    * Các dịch vụ Go/Alpine (`prometheus`, `grafana`, `loki`, `alloy`, `mysql-exporter`) chạy unprivileged, lắng nghe high port (> 1024), ghi dữ liệu vào volume qua quyền filesystem tiêu chuẩn, không có dấu hiệu cần capabilities đặc biệt.
+    * `node-exporter`: Khả năng thu thập metrics phụ thuộc vào quyền đọc của từng mount (`/host/proc`, `/host/sys`, `/rootfs`) và danh mục collectors được kích hoạt; cấu hình hiện tại loại trừ các mount nhạy cảm nên dự kiến vận hành được khi drop capabilities.
+    * `docker-socket-proxy` (HAProxy): Container chạy `user: "0:0"` và lắng nghe cổng 2375 (high port, không cần `CAP_NET_BIND_SERVICE`). Khả năng truy cập thực tế vào `/var/run/docker.sock` phụ thuộc vào quyền sở hữu (ownership), permission mode của file socket trên host Ubuntu và cấu hình user namespace/remapping của Docker daemon (cần xác minh runtime).
+    * `cap_drop` trên Socket Proxy đóng vai trò là một lớp phòng thủ chiều sâu (defense-in-depth), **không thay thế** allowlist Docker API của HAProxy và không bảo đảm loại bỏ mọi nguy cơ: nếu HAProxy bị xâm nhập, kẻ tấn công vẫn có thể gửi request tới các API endpoints nằm trong danh mục cho phép.
+  * **Giữ nguyên bộ capabilities mặc định cho 5 dịch vụ (tránh phá vỡ tương thích):**
+    * `nginx`: Master process có khả năng cần `CAP_NET_BIND_SERVICE` (cổng 80/443), `CAP_SETUID`/`CAP_SETGID` để chuyển đổi worker; giữ nguyên mặc định và cần kiểm tra hành vi runtime riêng trước khi thu hẹp.
+    * `wordpress`, `phpmyadmin`: Apache prefork master process có khả năng cần `CAP_NET_BIND_SERVICE`, `CAP_SETUID`, `CAP_SETGID` để quản lý worker pool; giữ nguyên mặc định để đảm bảo tương thích.
+    * `mysql`: MySQL 8.0 daemon có khả năng cần `CAP_SETUID`, `CAP_SETGID`, `CAP_CHOWN`, `CAP_SYS_NICE` cho entrypoint init và điều phối luồng; giữ nguyên mặc định.
+    * `cadvisor`: Có khả năng cần các quyền hệ thống như `CAP_DAC_OVERRIDE`, `CAP_SYS_ADMIN` để truy cập cgroups hierarchy, Docker daemon storage và disk stats; giữ nguyên mặc định, tuyệt đối không cấp `privileged: true` hay mở rộng socket.
+
 * Áp dụng tối thiểu 4 biện pháp bảo mật:
   1. **Network Isolation:** 4 mạng độc lập (`frontend-net`, `backend-net` internal, `monitoring-net`, `docker-api-net` internal); MySQL không expose cổng ra host.
   2. **Security Context & Capabilities:** Cấu hình `no-new-privileges: true` trên tất cả 12 dịch vụ.
