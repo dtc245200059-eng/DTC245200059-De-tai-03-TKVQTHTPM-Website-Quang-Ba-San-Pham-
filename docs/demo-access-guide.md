@@ -152,3 +152,76 @@ Sau khi đăng nhập Grafana, điều hướng tới mục **Dashboards** -> th
 - Các cổng `9090` (Prometheus) và `3000` (Grafana) được publish ra host nhằm phục vụ giảng viên kiểm tra và trình diễn demo trong khuôn khổ môn học.
 - **Trên môi trường vận hành thực tế (Production):** Các cổng này bắt buộc phải được đóng lại khỏi mạng công cộng (loại bỏ `ports:` trong Compose), chỉ cho phép truy cập qua VPN nội bộ hoặc định tuyến qua Nginx Reverse Proxy có phân quyền và mã hóa SSL/TLS.
 - **Lưu ý về tài khoản MySQL Exporter:** Tài khoản `exporter` được cấp `PROCESS, REPLICATION CLIENT, SELECT ON *.*` để tương thích với các collectors của `mysqld_exporter`. Tài khoản này không có quyền sửa/xóa dữ liệu, nhưng có quyền đọc dữ liệu toàn cục (bao gồm cả các bảng ứng dụng WordPress). Giới hạn `MAX_USER_CONNECTIONS 3` chỉ khống chế kết nối của riêng exporter nhằm bảo vệ connection pool, không hạn chế quyền đọc dữ liệu.
+
+---
+
+## 6. HỆ THỐNG NHẬT KÝ TẬP TRUNG LOKI & GRAFANA ALLOY QUA SOCKET PROXY (MỐC COMMIT 3)
+
+Hệ thống nhật ký tập trung tự động thu gom toàn bộ log từ các container vào Grafana Loki (`grafana/loki:3.7.9`) thông qua **Grafana Alloy** (`grafana/alloy:v1.21.2`) — agent telemetry thế hệ mới thay thế Promtail (vốn đã kết thúc vòng đời hỗ trợ từ ngày 02/03/2026). Dữ liệu nhật ký được tích hợp sẵn thành nguồn dữ liệu (Datasource) trong Grafana.
+
+Để bảo vệ Docker Engine API, hệ thống sử dụng **Docker Socket Proxy** dựa trên **HAProxy** (`haproxy:2.8.31-alpine`) với tệp cấu hình chuyên dụng `docker-socket-proxy/haproxy.cfg` làm tường lửa trung gian áp dụng chính sách **Strict Allowlist (Deny-by-default)**, thay thế cho giải pháp Tecnativa proxy vốn tồn tại lỗ hổng bảo mật cấp quyền quá mức (CVE-2026-78122 / Issue #182).
+
+### 6.1. Hướng dẫn truy cập và khám phá nhật ký trên Grafana Explore:
+1. Đăng nhập vào Grafana tại `http://localhost:3000` (hoặc `http://<IP_UBUNTU>:3000`).
+2. Trên thanh menu bên trái, chọn biểu tượng **Explore** (la bàn) hoặc truy cập trực tiếp `http://localhost:3000/explore`.
+3. Tại ô chọn nguồn dữ liệu (Datasource) ở góc trên bên trái, chọn **`Loki`**.
+4. Các nhãn (Labels) đã được chuẩn hóa bởi pipeline của Alloy để lọc dữ liệu:
+   * `container`: Tên container phát sinh log (`nginx`, `wordpress`, `mysql`, `phpmyadmin`, `prometheus`, `grafana`, `node-exporter`, `cadvisor`, `mysql-exporter`, `loki`, `alloy`, `docker-socket-proxy`).
+   * `service`: Tên dịch vụ Docker Compose tương ứng.
+   * `stream`: Luồng đầu ra (`stdout` hoặc `stderr`).
+   * `project`: Định danh dự án cố định (`de-03-wordpress`).
+   * `environment`: Nhãn môi trường phù hợp với đồ án môn học (`demo`).
+
+### 6.2. Danh mục 3 Truy vấn LogQL chuẩn phục vụ Demo và Đánh giá:
+
+Nhập các câu lệnh sau vào khung soạn thảo LogQL và nhấn **"Run query"**:
+
+| Mục đích kiểm thử | Câu lệnh LogQL | Ý nghĩa & Dữ liệu hiển thị kỳ vọng |
+| :--- | :--- | :--- |
+| **1. Giám sát truy cập Web Nginx** | `{container="nginx"} \|= "GET"` | Lọc toàn bộ các yêu cầu HTTP GET từ client đi qua Nginx Reverse Proxy, bao gồm IP client, URL request, mã phản hồi HTTP (200, 301, 304, ...) và User-Agent. *(Chưa qua thử nghiệm runtime)* |
+| **2. Phát hiện lỗi Web & Ứng dụng** | `{container=~"wordpress\|nginx"} \|~ "(?i)(error\|failed\|404\|500)"` | Tìm kiếm không phân biệt hoa thường các dòng log báo lỗi (PHP fatal error/warning trên WordPress, Nginx upstream connection failure, mã lỗi HTTP 404/500). *(Chưa qua thử nghiệm runtime)* |
+| **3. Cảnh báo an ninh CSDL MySQL** | `{container="mysql"} \|= "Access denied"` | Phát hiện các cảnh báo bảo mật từ engine MySQL Server khi có client kết nối sai mật khẩu hoặc tấn công brute-force (`Access denied for user...`). Quản trị viên cũng có thể truy vấn `{container="mysql"}` để xem log khởi động, cấu hình InnoDB và transaction của database. *(Chưa qua thử nghiệm runtime)* |
+
+### 6.3. Truy vấn nâng cao chuyển đổi Log sang Metric (LogQL Metrics):
+* **Tần suất yêu cầu HTTP Nginx theo thời gian:**
+  ```logql
+  sum by (status) (rate({container="nginx"} | pattern `<ip> - - [<time>] "<method> <uri> <proto>" <status> <size> <_>` [1m]))
+  ```
+* **Đếm số lượng lỗi phát sinh theo container:**
+  ```logql
+  sum by (container) (count_over_time({container=~"wordpress|nginx|mysql"} |~ "(?i)(error|failed|denied)" [5m]))
+  ```
+
+### 6.4. An toàn bảo mật hệ thống Logging & Phân tích rủi ro Socket Proxy:
+* **Rà soát lỗ hổng Tecnativa Proxy (CVE-2026-78122 / Issue #182):**
+  * Trong thiết kế ban đầu với `tecnativa/docker-socket-proxy`, biến môi trường `CONTAINERS=1` mở toàn bộ namespace `/containers/*`. Mặc dù đặt `POST=0` để chặn các method ghi, **các request GET độc hại vẫn lọt qua hoàn toàn**:
+    * `GET /containers/{id}/archive`: Cho phép tải/đọc trộm bất kỳ tệp tin nào trong container (kể cả `/etc/shadow`, `wp-config.php`, SSH keys).
+    * `GET /containers/{id}/export`: Cho phép tải dump toàn bộ filesystem container dạng tarball.
+    * `GET /containers/{id}/attach/ws`: Cho phép cướp terminal tương tác container qua WebSocket.
+    * `GET /containers/{id}/top`: Cho phép theo dõi danh sách tiến trình nội bộ của container trên host.
+  * Vì vậy, khẳng định *`POST=0 loại bỏ hoàn toàn rủi ro`* là **hoàn toàn sai lầm về mặt an ninh**.
+* **Phân tách mạng chuyên dụng (Network Isolation - `docker-api-net`):**
+  * Socket thật `/var/run/docker.sock:ro` **chỉ được mount vào `docker-socket-proxy`**. Alloy tuyệt đối không mount socket vật lý.
+  * Thiết lập mạng nội bộ độc lập `docker-api-net` (`internal: true`). `docker-socket-proxy` **chỉ tham gia `docker-api-net`**, không tham gia `monitoring-net` hay bất kỳ mạng nào khác.
+  * `alloy` tham gia đồng thời 2 mạng: `docker-api-net` (kết nối proxy tại `tcp://docker-socket-proxy:2375`) và `monitoring-net` (đẩy log tới `http://loki:3100`).
+  * Tuyệt đối không publish cổng 2375 ra host. Không có bất kỳ container nào khác trong hệ thống có thể tiếp cận được Socket Proxy.
+* **Kiến trúc HAProxy Strict Allowlist (Chính sách Deny-by-default):**
+  * Dự án sử dụng image chính thức `haproxy:2.8.31-alpine` với tệp cấu hình độc lập `docker-socket-proxy/haproxy.cfg`.
+  * **Quy tắc chặn Method:** Chặn 403 Forbidden ngay lập tức mọi HTTP method ngoài `GET` và `HEAD` (ngăn chặn triệt để `POST`, `PUT`, `DELETE`, `PATCH`).
+  * **Quy tắc Allowlist 5 Endpoint tối thiểu cần thiết:**
+    1. `GET /_ping`: Healthcheck daemon probe (`^(/v[0-9\.]+)?/_ping$`).
+    2. `GET /version`: Tra cứu phiên bản Docker API trong handshake ban đầu (`^(/v[0-9\.]+)?/version$`).
+    3. `GET /containers/json`: Liệt kê danh sách container cho `discovery.docker` (`^(/v[0-9\.]+)?/containers/json$`).
+    4. `GET /containers/{id}/logs`: Thu thập luồng log stdout/stderr cho `loki.source.docker` (`^(/v[0-9\.]+)?/containers/[a-zA-Z0-9_.-]+/logs$`).
+    5. `GET /containers/{id}/json`: Cho phép tailer của `loki.source.docker` xác minh container state và timestamp khởi tạo (`^(/v[0-9\.]+)?/containers/[a-zA-Z0-9_.-]+/json$`).
+  * **Loại bỏ `GET /events`:** Thành phần `discovery.docker` của Alloy hoạt động bằng cơ chế định kỳ polling `ContainerList` qua `refresh_interval = "5s"` chứ không đăng ký lắng nghe event stream. Do đó, endpoint `/events` bị loại bỏ khỏi allowlist để tối giản bề mặt tấn công.
+  * **Chính sách Timeout:** Cấu hình `timeout client 1h`, `timeout server 1h`, `timeout tunnel 1h` để hỗ trợ các luồng log kéo dài mà không bị ngắt kết nối khi container tạm thời không có output mới.
+  * **Quy tắc Deny-by-default (403 Forbidden):** Mặc định từ chối tất cả các request còn lại, bao gồm `/archive`, `/export`, `/top`, `/attach`, `/exec`, `/build`, `/images`, `/volumes`, `/networks`.
+* **Đánh giá rủi ro còn lại của `GET /containers/{id}/json` & Phạm vi Relabel:**
+  * Endpoint inspect trả về mảng `Config.Env` chứa các biến môi trường cấu hình của container. Nếu ứng dụng cấu hình mật khẩu dạng plain text env, client trong mạng `docker-api-net` (ở đây chỉ có Alloy) có thể đọc được metadata này.
+  * *Lưu ý về Relabel Whitelist:* Bộ lọc `discovery.relabel` trong Alloy chỉ giới hạn các log được chuyển tiếp lên Loki, **không giới hạn quyền đọc API của Alloy** đối với các container qua Socket Proxy (Alloy vẫn có thể gọi inspect/list mọi container qua proxy trước khi lọc nhãn).
+  * *Đánh đổi bảo mật:* Endpoint inspect bắt buộc phải mở để Docker SDK tailer trong Alloy hoạt động. Rủi ro này được khoanh vùng tối đa nhờ cô lập mạng riêng `docker-api-net` (không expose cổng host, chỉ duy nhất Alloy được kết nối).
+* **Quyền hạn và Lưu trữ trạng thái của Alloy:**
+  * Alloy lưu offset đọc log bền vững trên named volume `alloy_data` gắn vào `/var/lib/alloy/data` (cấu hình qua cờ `--storage.path`).
+  * Do Alloy chỉ mở kết nối mạng TCP tới proxy (`tcp://docker-socket-proxy:2375`) mà không cần đọc socket file Unix, tiến trình chạy dưới user unprivileged `alloy` (UID `473`, GID `473`), không cần đặc quyền root (`0:0`).
+* **Lưu ý kiểm thử:** Các quy tắc regex allowlist đã được kiểm tra bằng test script độc lập. Do môi trường Windows hiện tại không cài đặt sẵn công cụ `haproxy` CLI cục bộ (`haproxy -c`), parser nội bộ của HAProxy chưa thể được kiểm chứng tĩnh và không coi thử nghiệm regex Python là bằng chứng tương đương. Hiệu năng thực tế và kết nối API sẽ được kiểm chứng chính thức trong bước chạy runtime trên máy chủ Ubuntu.

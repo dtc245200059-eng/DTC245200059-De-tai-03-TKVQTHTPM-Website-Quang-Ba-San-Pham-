@@ -1,0 +1,69 @@
+// ==============================================================================
+// CẤU HÌNH GRAFANA ALLOY - AGENT THU THẬP VÀ CHUYỂN TIẾP NHẬT KÝ (config.alloy)
+// Đề tài số 03: Website Quảng bá Sản phẩm bằng WordPress
+// Môn học: Triển khai và Quản trị Hệ thống Phần mềm
+// Sinh viên: Nông Quốc Tuấn | MSV: DTC245200059 | Lớp: KTPM K23C
+// ==============================================================================
+
+// 1. Tự động khám phá các Docker container qua Docker Socket Proxy (chỉ đọc)
+discovery.docker "containers" {
+  host             = "tcp://docker-socket-proxy:2375"
+  refresh_interval = "5s"
+}
+
+// 2. Chuẩn hóa nhãn, lọc danh sách containers của dự án và kiểm soát cardinality
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.containers.targets
+
+  // Quy tắc 1: Trích xuất tên container sạch (loại bỏ dấu '/' ở đầu nếu có)
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?(.*)"
+    target_label  = "container"
+  }
+
+  // Quy tắc 2: Chỉ thu gom nhật ký từ 12 containers thuộc Đề tài số 03
+  rule {
+    source_labels = ["container"]
+    regex         = "(wordpress|mysql|phpmyadmin|nginx|prometheus|grafana|node-exporter|cadvisor|mysql-exporter|loki|alloy|docker-socket-proxy)"
+    action        = "keep"
+  }
+
+  // Quy tắc 3: Trích xuất tên dịch vụ từ nhãn Docker Compose
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  // Quy tắc 4: Trích xuất luồng log (stdout hoặc stderr)
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+
+  // Quy tắc 5: Gán nhãn môi trường demo và tên dự án cố định
+  rule {
+    replacement  = "de-03-wordpress"
+    target_label = "project"
+  }
+
+  rule {
+    replacement  = "demo"
+    target_label = "environment"
+  }
+}
+
+// 3. Đọc luồng nhật ký từ các Docker container qua Docker Socket Proxy
+loki.source.docker "containers" {
+  host          = "tcp://docker-socket-proxy:2375"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.docker_logs.rules
+  forward_to    = [loki.write.endpoint.receiver]
+}
+
+// 4. Chuyển tiếp nhật ký tới máy chủ Grafana Loki trong mạng nội bộ monitoring-net
+loki.write "endpoint" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

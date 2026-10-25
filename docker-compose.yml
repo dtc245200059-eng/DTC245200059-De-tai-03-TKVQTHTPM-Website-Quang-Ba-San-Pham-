@@ -278,6 +278,84 @@ services:
       retries: 3
       start_period: 15s
 
+  # ----------------------------------------------------------------------------
+  # DỊCH VỤ 10: MÁY CHỦ THU THẬP VÀ LƯU TRỮ NHẬT KÝ (GRAFANA LOKI)
+  # ----------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:3.7.9
+    container_name: loki
+    restart: unless-stopped
+    command:
+      - '-config.file=/etc/loki/loki-config.yml'
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    networks:
+      - monitoring-net
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:3100/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ----------------------------------------------------------------------------
+  # DỊCH VỤ 11: AGENT THU GOM VÀ CHUYỂN TIẾP NHẬT KÝ (GRAFANA ALLOY)
+  # ----------------------------------------------------------------------------
+  alloy:
+    image: grafana/alloy:v1.21.2
+    container_name: alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy/data
+    networks:
+      - monitoring-net
+      - docker-api-net
+    depends_on:
+      loki:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/12345' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # DỊCH VỤ 12: DOCKER SOCKET PROXY TRUNG GIAN (HAPROXY STRICT ALLOWLIST)
+  # ----------------------------------------------------------------------------
+  docker-socket-proxy:
+    image: haproxy:2.8.31-alpine
+    container_name: docker-socket-proxy
+    restart: unless-stopped
+    user: "0:0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker-socket-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      - docker-api-net
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:2375/_ping || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+
 # ------------------------------------------------------------------------------
 # KHAI BÁO PHÂN TÁCH MẠNG NỘI BỘ (NETWORK ISOLATION)
 # ------------------------------------------------------------------------------
@@ -291,9 +369,14 @@ networks:
     driver: bridge
     internal: true
 
-  # Mạng nội bộ dành riêng cho hệ thống giám sát (Prometheus, Grafana, Exporters)
+  # Mạng nội bộ dành riêng cho hệ thống giám sát và logging (Prometheus, Grafana, Exporters, Loki, Alloy)
   monitoring-net:
     driver: bridge
+
+  # Mạng nội bộ bảo mật chỉ dành riêng cho giao tiếp Docker API giữa Alloy và HAProxy
+  docker-api-net:
+    driver: bridge
+    internal: true
 
 # ------------------------------------------------------------------------------
 # KHAI BÁO LƯU TRỮ BỀN VỮNG (PERSISTENT VOLUMES)
@@ -310,4 +393,10 @@ volumes:
     driver: local
   # Lưu trữ cấu hình người dùng, sessions, dashboards tùy biến của Grafana
   grafana_data:
+    driver: local
+  # Lưu trữ cơ sở dữ liệu chunks và chỉ mục TSDB của Grafana Loki
+  loki_data:
+    driver: local
+  # Lưu trữ trạng thái đọc log, positions và offset của Grafana Alloy
+  alloy_data:
     driver: local

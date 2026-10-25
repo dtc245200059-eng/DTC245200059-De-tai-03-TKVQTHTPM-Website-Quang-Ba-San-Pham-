@@ -78,7 +78,8 @@
   * `docs/demo-access-guide.md`: Hướng dẫn cấu hình file hosts và truy cập demo.
   * `docker-compose.yml`: Dịch vụ `nginx` (image `nginx:1.30.6-alpine`, publish cổng 80, 443; tham gia `frontend-net`).
 
-### Giai đoạn 4: Tích hợp Giám sát Prometheus & Grafana (Mốc COMMIT 2) — [ĐÃ HOÀN THÀNH CẤU HÌNH TĨNH]
+### Giai đoạn 4: Tích hợp Giám sát Prometheus & Grafana (Mốc COMMIT 2) — [ĐÃ HOÀN THÀNH VÀ COMMIT]
+* **Mốc Git đã tạo:** `cb8fa3b` — *Tích hợp Prometheus, Grafana và các Exporter giám sát (Mốc Commit 2)*
 * **Tệp đã tạo và tích hợp:**
   * `prometheus/prometheus.yml`: Cấu hình scrape interval (15s) cho 4 jobs: `prometheus`, `node-exporter`, `cadvisor`, `mysql-exporter`.
   * `mysql/init/01-exporter.sh`: Script tự động khởi tạo user `exporter` với bộ quyền tương thích collectors (`PROCESS, REPLICATION CLIENT, SELECT ON *.*` kèm `MAX_USER_CONNECTIONS 3`) trong MySQL 8.0.
@@ -90,38 +91,56 @@
   * `grafana/dashboards/mysql-monitoring.json`: Bảng điều khiển giám sát CSDL MySQL (MySQL Up/Down, QPS, Connections, Running Threads, Buffer Pool, Slow Queries).
   * `docker-compose.yml`: Bổ sung 5 dịch vụ giám sát (`prometheus`, `grafana`, `node-exporter`, `cadvisor`, `mysql-exporter`), mạng `monitoring-net` và 2 volumes lưu trữ (`prometheus_data`, `grafana_data`).
   * `.env.example`: Bổ sung biến môi trường cấu hình mật khẩu quản trị Grafana và tài khoản MySQL Exporter.
-* **Đặc tả kiến trúc mạng & An toàn bảo mật:**
-  * `backend-net` được giữ nguyên cấu hình `internal: true`, cô lập hoàn toàn CSDL MySQL khỏi Internet.
-  * `mysql-exporter` tham gia đồng thời 2 mạng: `backend-net` (kết nối `mysql:3306`) và `monitoring-net` (cung cấp cổng nội bộ 9104 cho Prometheus scrape).
-  * MySQL container tuyệt đối KHÔNG mở cổng 3306 ra máy host.
-  * `node-exporter` (9100), `cadvisor` (8080) và `mysql-exporter` (9104) KHÔNG publish cổng ra máy host; chỉ Prometheus truy cập nội bộ qua `monitoring-net`.
-  * Chỉ duy nhất máy chủ Prometheus (`9090:9090`) và Grafana (`3000:3000`) mở cổng phục vụ giảng viên kiểm tra và trình diễn demo.
-* **Giải trình Lựa chọn Phiên bản & Quyền hạn Giám sát:**
-  * **Prometheus Image (`prom/prometheus:v2.53.3`):** Đây là bản phát hành bảo mật cuối cùng của nhánh Prometheus v2.53 LTS (vốn có chu kỳ EOL vào 31/07/2025). Quyết định giữ phiên bản này nhằm đảm bảo tính tương thích tuyệt đối với học liệu và bài giảng môn học (Bài 7 - Giám sát hệ thống máy chủ), đồng thời tránh các breaking changes của Prometheus 3.x (như unbundled console templates, thay đổi cờ quản lý TSDB). Không tự động nâng lên Prometheus 3.x (như `v3.13.5`) khi chưa có yêu cầu từ giảng viên.
-  * **Đặc tả Quyền hạn MySQL Exporter & Rủi ro Bảo mật:** Cấu hình tài khoản exporter theo tài liệu chuẩn của Prometheus: `PROCESS, REPLICATION CLIENT, SELECT ON *.*` kèm `MAX_USER_CONNECTIONS 3`. Cần làm rõ phạm vi quyền thực tế:
-    1. `PROCESS`: Cho phép xem thông tin luồng và tiến trình đang thực thi trong MySQL.
-    2. `REPLICATION CLIENT`: Cho phép đọc trạng thái binlog và replication.
-    3. `SELECT ON *.*`: Cho phép đọc các bảng hệ thống (`performance_schema`, `information_schema`) phục vụ collectors. Mặc dù không có quyền sửa/xóa (`INSERT`, `UPDATE`, `DELETE`, `DROP`), nhưng `SELECT ON *.*` là quyền đọc toàn cục, đồng nghĩa tài khoản này **có thể đọc toàn bộ dữ liệu ứng dụng (bao gồm cả các bảng WordPress)**. Đây là một đánh đổi/rủi ro bảo mật cần ghi nhận.
-    4. `WITH MAX_USER_CONNECTIONS 3`: Chỉ giới hạn số kết nối đồng thời của riêng tài khoản exporter để chống cạn kiệt connection pool từ phía exporter; không giới hạn phạm vi đọc và không thay thế việc cấu hình `max_connections` toàn máy chủ.
-* **Mốc Git dự kiến (Chờ phê duyệt để commit):**
-  * `feat(monitoring): integrate Prometheus, Grafana, cAdvisor, Node Exporter, and MySQL Exporter with dashboards (Commit 2)`
 
-### Giai đoạn 5: Hệ thống Log tập trung Loki + Promtail & Truy vấn LogQL (Mốc COMMIT 3)
-* **Tệp tạo mới:**
-  * `loki/loki-config.yml` (cấu hình lưu trữ chunks, schema retention).
-  * `promtail/promtail-config.yml` (cấu hình đọc log docker socket, parse json, gán nhãn).
-  * Bổ sung dịch vụ vào `docker-compose.yml`: `loki`, `promtail`.
-  * `grafana/provisioning/datasources/loki.yml` (tự động nạp Loki datasource).
+### Giai đoạn 5: Hệ thống Log tập trung Loki + Grafana Alloy qua HAProxy Allowlist & Truy vấn LogQL (Mốc COMMIT 3) — [ĐÃ HOÀN THÀNH CẤU HÌNH TĨNH HIỆN ĐẠI HÓA]
+* **Hiện đại hóa kiến trúc Logging (Grafana Alloy & HAProxy Allowlist Proxy):**
+  * Do Promtail đã chính thức hết vòng đời hỗ trợ (End-of-Life - EOL) từ ngày 02/03/2026, hệ thống chuyển đổi toàn diện sang **Grafana Alloy** (`grafana/alloy:v1.21.2`) — bản phát hành ổn định chính thức của Grafana.
+  * Tách biệt ranh giới bảo mật Docker Socket: Loại bỏ hoàn toàn việc mount trực tiếp socket `/var/run/docker.sock` vào Alloy. Thiết lập dịch vụ trung gian **Docker Socket Proxy** sử dụng **HAProxy** (`haproxy:2.8-alpine`) với tệp cấu hình allowlist chuyên dụng (`docker-socket-proxy/haproxy.cfg`), áp dụng chính sách nghiêm ngặt **Deny-by-default**.
+* **Rà soát & Khắc phục lỗ hổng bảo mật của Docker Socket Proxy (CVE-2026-78122 / Issue #182):**
+  * **Lỗ hổng của Tecnativa Proxy:** Khi chỉ bật `CONTAINERS=1` và `POST=0`, Tecnativa proxy chỉ chặn các HTTP verbs ghi (`POST/PUT/DELETE`), nhưng **vẫn cho phép toàn bộ các GET request** trong namespace `/containers/*`. Kẻ tấn công có thể khai thác các endpoint GET nguy hiểm:
+    * `GET /containers/{id}/archive`: Tải tệp tùy ý từ filesystem của container (rò rỉ mã nguồn, wp-config.php, private keys).
+    * `GET /containers/{id}/export`: Tải toàn bộ bản sao filesystem của container.
+    * `GET /containers/{id}/top`: Do thám các tiến trình đang chạy bên trong container.
+    * `GET /containers/{id}/attach/ws`: Chiếm quyền điều khiển terminal qua WebSocket.
+  * **Giải pháp khắc phục triệt để:** Không dùng biến môi trường coarse-grained của Tecnativa, mà chuyển sang cấu hình **HAProxy Native Allowlist** với regex đường dẫn chính xác, từ chối mặc định mọi endpoint không nằm trong danh mục cho phép.
+* **Tệp đã tạo và tích hợp:**
+  * `loki/loki-config.yml`: Cấu hình lưu trữ chunks trên filesystem, schema v13 TSDB, retention period 7 ngày (168h), compactor tự động dọn dẹp log cũ theo chu kỳ 10 phút.
+  * `docker-socket-proxy/haproxy.cfg`: Cấu hình HAProxy strict allowlist (deny-by-default), chỉ mở 5 endpoint GET thiết yếu và chặn toàn bộ các endpoint nguy hiểm khác; mở rộng timeouts (1h) hỗ trợ log streaming.
+  * `alloy/config.alloy`: Cấu hình Alloy với cú pháp native (River syntax), gồm 4 khối pipeline liên kết: `discovery.docker` (khám phá container qua `tcp://docker-socket-proxy:2375`), `discovery.relabel` (chuẩn hóa nhãn, lọc whitelist 12 containers, gán nhãn môi trường demo), `loki.source.docker` (thu thập log từ proxy API) và `loki.write` (chuyển tiếp log về Loki).
+  * `grafana/provisioning/datasources/loki.yml`: Tự động nạp Loki làm Datasource trong Grafana tại `http://loki:3100`.
+  * `docker-compose.yml`: Bổ sung 3 dịch vụ `loki` (`grafana/loki:3.7.9`), `alloy` (`grafana/alloy:v1.21.2`) và `docker-socket-proxy` (`haproxy:2.8.31-alpine`); tách mạng `docker-api-net` (internal); bổ sung 2 volumes `loki_data` và `alloy_data`.
+* **Đặc tả kiến trúc thu thập log & Phân tích an toàn bảo mật Socket Proxy Allowlist:**
+  * **Ranh giới cô lập Mạng & Socket (Network & Socket Segregation):**
+    * Socket thật `/var/run/docker.sock:ro` CHỈ được mount vào `docker-socket-proxy`.
+    * Tách riêng mạng nội bộ `docker-api-net` (`internal: true`). `docker-socket-proxy` CHỈ tham gia `docker-api-net`, tuyệt đối không tham gia `monitoring-net`.
+    * `alloy` tham gia cả 2 mạng: `docker-api-net` (giao tiếp với proxy qua `tcp://docker-socket-proxy:2375`) và `monitoring-net` (đẩy log về `http://loki:3100`).
+    * Tuyệt đối không publish cổng 2375 ra host. Không dịch vụ nào khác trong hệ thống có thể kết nối tới Socket Proxy.
+  * **Chính sách kiểm soát Endpoint (Method & Path Allowlist tối giản):**
+    * `Method Restriction`: Chặn tuyệt đối mọi method khác ngoài `GET` và `HEAD`. Không thể gửi `POST`, `PUT`, `DELETE`, `PATCH`.
+    * `GET /_ping`: Cho phép kiểm tra trạng thái Docker daemon và phục vụ healthcheck.
+    * `GET /version`: Cho phép kiểm tra phiên bản Docker API cho handshake ban đầu.
+    * `GET /containers/json`: Cho phép `discovery.docker` liệt kê danh sách container, IDs và labels.
+    * `GET /containers/{id}/logs`: Cho phép `loki.source.docker` đọc stream log stdout/stderr (hỗ trợ timeout 1h tránh đứt luồng khi container idle).
+    * `GET /containers/{id}/json`: Cho phép tailer của `loki.source.docker` xác minh container còn sống và kiểm tra timestamp khởi tạo. *(Đánh giá rủi ro: Endpoint này trả về mảng `Config.Env` chứa các biến môi trường của container; cần lưu ý quản lý secret chặt chẽ).*
+    * `Loại bỏ GET /events`: Thành phần `discovery.docker` hoạt động bằng cơ chế định kỳ polling danh sách containers qua `refresh_interval`, không cần event stream, loại bỏ để tối giản bề mặt tấn công.
+    * `Deny-by-default (403 Forbidden)`: Chặn tuyệt đối `/archive` (chặn CVE-2026-78122), `/export`, `/top`, `/attach`, `/exec`, `/build`, `/images`, `/volumes`, `/networks`...
+    * `Lưu ý phạm vi Relabel Whitelist:` Bộ lọc `discovery.relabel` trong Alloy chỉ giới hạn các log được chuyển tiếp lên Loki, **không giới hạn quyền đọc API của Alloy** đối với các container qua Socket Proxy (Alloy vẫn có thể gọi inspect/list mọi container qua proxy trước khi lọc nhãn).
+  * **Quyền thực thi & Lưu trữ trạng thái của Alloy:**
+    * Alloy lưu offset và positions bền vững trên named volume `alloy_data` gắn vào `/var/lib/alloy/data` (cấu hình qua cờ `--storage.path`).
+    * Trong image `grafana/alloy`, user `alloy` có UID `473`, GID `473` với thư mục `/var/lib/alloy` được cấp quyền `0770`. Do Alloy chỉ mở kết nối mạng TCP tới proxy mà không cần truy cập socket file Unix, tiến trình hoàn toàn không cần đặc quyền root để hoạt động.
+  * **Kiểm soát Cardinality:** Nhãn được chuẩn hóa gồm `container`, `service`, `stream`, `project="de-03-wordpress"`, `environment="demo"` (tổng cộng 24 streams cho 12 containers), tuyệt đối không gán nhãn giá trị động (IP client, URL động, User-Agent, Session ID, timestamp).
+  * **Cô lập mạng:** `loki` (3100), `alloy` (12345) và `docker-socket-proxy` (2375) KHÔNG công bố cổng ra máy host; toàn bộ luồng truyền log diễn ra khép kín trong `monitoring-net` và `docker-api-net`.
 * **Kiểm thử & 3 Truy vấn LogQL chuẩn:**
-  1. `{container="nginx"} |= "GET"`
-  2. `{container=~"wordpress|nginx"} |~ "(?i)(error|failed|404|500)"`
-  3. `{container="mysql"} |= "Access denied"` hoặc `{container="mysql"}`
-* **Mốc Git:** `feat(logging): setup centralized logging with Loki, Promtail, and LogQL queries (Commit 3)`.
+  1. Giám sát truy cập web Nginx: `{container="nginx"} |= "GET"`
+  2. Phát hiện lỗi ứng dụng WordPress và Nginx: `{container=~"wordpress|nginx"} |~ "(?i)(error|failed|404|500)"`
+  3. Cảnh báo an ninh CSDL MySQL: `{container="mysql"} |= "Access denied"` hoặc `{container="mysql"}`
+* **Mốc Git dự kiến (Chờ phê duyệt để commit):**
+  * `Tích hợp hệ thống log tập trung Loki, Grafana Alloy qua HAProxy Allowlist và LogQL (Mốc Commit 3)`
 
 ### Giai đoạn 6: Triển khai Hardening và Bảo mật Hệ thống
 * Áp dụng tối thiểu 4 biện pháp bảo mật:
-  1. **Network Isolation:** 3 mạng độc lập; MySQL không expose cổng ra host; `backend-net` có `internal: true`.
-  2. **Security Context & Capabilities:** Cấu hình `no-new-privileges: true` trên tất cả 9 dịch vụ.
+  1. **Network Isolation:** 4 mạng độc lập (`frontend-net`, `backend-net` internal, `monitoring-net`, `docker-api-net` internal); MySQL không expose cổng ra host.
+  2. **Security Context & Capabilities:** Cấu hình `no-new-privileges: true` trên tất cả 12 dịch vụ.
   3. **Mật khẩu mạnh & Biến môi trường:** Bảo vệ secrets, cấu hình `.env` chặt chẽ, exporter phân định rõ ranh giới quyền đọc toàn cục.
   4. **Nginx Security Hardening:** Tắt server tokens, thiết lập buffer limits và rate limit.
 * **Kiểm thử:** Xác nhận quét cổng host không thấy cổng 3306; kiểm tra container inspect xác nhận security_opt.
@@ -147,3 +166,6 @@
 | **`node-exporter`**| `prom/node-exporter:v1.8.2` | `monitoring-net` | `9100` | *Nội bộ* | Exporter đo chỉ số máy chủ host |
 | **`cadvisor`** | `gcr.io/cadvisor/cadvisor:v0.49.1`| `monitoring-net` | `8080` | *Nội bộ* | Exporter đo chỉ số tài nguyên container Docker |
 | **`mysql-exporter`**| `prom/mysqld-exporter:v0.15.1`| `backend-net`, `monitoring-net` | `9104` | *Nội bộ* | Exporter đo chỉ số CSDL MySQL (Cầu nối an toàn) |
+| **`loki`** | `grafana/loki:3.7.9` | `monitoring-net` | `3100` | *Nội bộ* | Máy chủ lưu trữ và truy vấn log tập trung (TSDB schema v13, retention 168h) |
+| **`alloy`** | `grafana/alloy:v1.21.2` | `monitoring-net`, `docker-api-net` | `12345` | *Nội bộ* | Agent thu gom và gán nhãn log container qua Socket Proxy (thay thế Promtail EOL) |
+| **`docker-socket-proxy`** | `haproxy:2.8.31-alpine` | `docker-api-net` (internal) | `2375` | *Nội bộ* | Tường lửa API Docker Engine (Chính sách Deny-by-default, chặn archive/export/exec) |
