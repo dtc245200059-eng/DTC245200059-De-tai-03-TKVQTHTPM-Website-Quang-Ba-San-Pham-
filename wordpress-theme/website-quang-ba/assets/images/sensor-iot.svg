@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300" fill="none">
+  <defs>
+    <linearGradient id="sensor-bg" x1="100" y1="60" x2="300" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#f1f5f9" />
+    </linearGradient>
+    <linearGradient id="sensor-ring" x1="140" y1="100" x2="260" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="400" height="300" rx="16" fill="#f8fafc" />
+  <circle cx="200" cy="145" r="110" fill="#ecfdf5" opacity="0.7" />
+
+  <!-- Sensor Enclosure -->
+  <rect x="130" y="75" width="140" height="140" rx="40" fill="url(#sensor-bg)" stroke="#cbd5e1" stroke-width="2" />
+
+  <!-- Dial Display -->
+  <circle cx="200" cy="140" r="45" fill="#0f172a" />
+  <circle cx="200" cy="140" r="40" fill="none" stroke="url(#sensor-ring)" stroke-width="3" stroke-dasharray="160 40" />
+
+  <!-- Display readings -->
+  <text x="200" y="138" font-family="'Plus Jakarta Sans', sans-serif" font-size="18" font-weight="800" fill="#ffffff" text-anchor="middle">24.5°</text>
+  <text x="200" y="154" font-family="'Plus Jakarta Sans', sans-serif" font-size="9" font-weight="600" fill="#38bdf8" text-anchor="middle">58% RH</text>
+
+  <!-- Sensor Vent Grille -->
+  <rect x="180" y="190" width="40" height="4" rx="2" fill="#94a3b8" />
+  <rect x="185" y="198" width="30" height="4" rx="2" fill="#94a3b8" />
+
+  <!-- Battery & Wireless badge -->
+  <circle cx="160" cy="100" r="4" fill="#10b981" />
+  <path d="M235 98 C240 102, 240 106, 235 110" stroke="#0284c7" stroke-width="2" stroke-linecap="round" fill="none" />
+
+  <!-- Model Tag -->
+  <rect x="145" y="235" width="110" height="24" rx="6" fill="#10b981" fill-opacity="0.1" />
+  <text x="200" y="251" font-family="'Plus Jakarta Sans', sans-serif" font-size="11" font-weight="700" fill="#059669" text-anchor="middle">ULTRASENSOR S2</text>
+</svg>

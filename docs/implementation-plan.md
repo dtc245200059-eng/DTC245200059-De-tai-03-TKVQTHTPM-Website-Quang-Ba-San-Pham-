@@ -206,6 +206,7 @@
 * **Kiểm thử:** Xác nhận quét cổng host không thấy cổng 3306; kiểm tra container inspect xác nhận security_opt.
 
 ### Giai đoạn 7: Kiểm thử Tổng thể, Soạn thảo Báo cáo & Chuẩn bị Demo
+* Xây dựng và tích hợp giao diện Website Quảng bá Sản phẩm WordPress chuẩn responsive (Classic Theme `website-quang-ba`), thay thế giao diện mặc định.
 * Viết kịch bản kiểm thử tự động `tests/smoke-test.sh`.
 * Soạn thảo tài liệu `README.md` chi tiết bằng tiếng Việt.
 * Soạn thảo Báo cáo tổng hợp `>= 10 trang` định dạng chuẩn môn học tại `docs/bao-cao-tong-hop.md`.

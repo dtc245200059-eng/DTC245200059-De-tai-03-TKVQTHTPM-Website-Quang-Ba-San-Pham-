@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300" fill="none">
+  <defs>
+    <linearGradient id="gate-bg" x1="60" y1="90" x2="340" y2="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1e1b4b" />
+      <stop offset="100%" stop-color="#312e81" />
+    </linearGradient>
+    <linearGradient id="gate-shield" x1="170" y1="110" x2="230" y2="170" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="400" height="300" rx="16" fill="#f8fafc" />
+  <circle cx="200" cy="150" r="115" fill="#eef2ff" opacity="0.8" />
+
+  <!-- Antennas -->
+  <line x1="130" y1="105" x2="110" y2="50" stroke="#334155" stroke-width="5" stroke-linecap="round" />
+  <line x1="270" y1="105" x2="290" y2="50" stroke="#334155" stroke-width="5" stroke-linecap="round" />
+  <circle cx="110" cy="50" r="4" fill="#6366f1" />
+  <circle cx="290" cy="50" r="4" fill="#6366f1" />
+
+  <!-- Gateway Body -->
+  <rect x="95" y="100" width="210" height="95" rx="16" fill="url(#gate-bg)" stroke="#4338ca" stroke-width="2" />
+
+  <!-- Heat sink fins on top -->
+  <path d="M120 100 L120 95 M140 100 L140 95 M160 100 L160 95 M180 100 L180 95 M200 100 L200 95 M220 100 L220 95 M240 100 L240 95 M260 100 L260 95 M280 100 L280 95" stroke="#475569" stroke-width="3" stroke-linecap="round" />
+
+  <!-- Shield Security Emblem -->
+  <path d="M200 120 L218 128 V146 C218 158 200 166 200 166 C200 166 182 158 182 146 V128 Z" fill="url(#gate-shield)" />
+  <path d="M195 142 L199 146 L206 137" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Ethernet / Port Status LEDs -->
+  <circle cx="120" cy="165" r="3.5" fill="#10b981" />
+  <circle cx="132" cy="165" r="3.5" fill="#10b981" />
+  <circle cx="144" cy="165" r="3.5" fill="#38bdf8" />
+  <circle cx="156" cy="165" r="3.5" fill="#64748b" />
+  <rect x="250" y="160" width="35" height="10" rx="3" fill="#0f172a" />
+  <circle cx="258" cy="165" r="2" fill="#38bdf8" />
+  <circle cx="268" cy="165" r="2" fill="#10b981" />
+
+  <!-- Model Tag -->
+  <rect x="145" y="235" width="110" height="24" rx="6" fill="#4f46e5" fill-opacity="0.1" />
+  <text x="200" y="251" font-family="'Plus Jakarta Sans', sans-serif" font-size="11" font-weight="700" fill="#4338ca" text-anchor="middle">CYBEREDGE G3</text>
+</svg>

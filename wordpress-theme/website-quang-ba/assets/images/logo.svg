@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 60" width="280" height="60" fill="none">
+  <defs>
+    <linearGradient id="logo-grad" x1="0" y1="0" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+  </defs>
+  <!-- Biểu tượng Logo -->
+  <rect x="4" y="8" width="44" height="44" rx="12" fill="url(#logo-grad)" />
+  <path d="M18 20L26 38L34 20" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="26" cy="30" r="3.5" fill="#38bdf8" />
+  <circle cx="34" cy="20" r="2.5" fill="#ffffff" />
+
+  <!-- Tên thương hiệu -->
+  <text x="60" y="32" font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#0f172a" letter-spacing="-0.5">TECH<tspan fill="#2563eb">SMART</tspan></text>
+  <text x="60" y="47" font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" font-size="10" font-weight="600" fill="#64748b" letter-spacing="1.5">HỆ SINH THÁI ĐỀ TÀI 03</text>
+</svg>

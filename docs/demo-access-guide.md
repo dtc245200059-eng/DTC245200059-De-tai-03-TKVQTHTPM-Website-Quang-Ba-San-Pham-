@@ -327,6 +327,84 @@ Nhằm tăng cường phòng thủ chiều sâu (defense-in-depth) trong trườ
 | **`wordpress`** | *Giữ nguyên* | Giữ nguyên bộ capability mặc định để tránh phá vỡ tương thích. Apache master có khả năng cần `NET_BIND_SERVICE`, `SETUID`/`SETGID` để quản lý worker pool `www-data`; cần kiểm tra riêng. |
 | **`phpmyadmin`** | *Giữ nguyên* | Giữ nguyên bộ capability mặc định để tránh phá vỡ tương thích; Apache master có khả năng cần các quyền tương tự WordPress. |
 | **`mysql`** | *Giữ nguyên* | Giữ nguyên bộ capability mặc định để tránh phá vỡ tương thích. Daemon có khả năng cần `SETUID`, `SETGID`, `CHOWN`, `SYS_NICE` cho entrypoint init và điều phối luồng; cần xác minh runtime. |
-| **`cadvisor`** | *Giữ nguyên* | Giữ nguyên bộ capability mặc định để tránh phá vỡ tương thích. Có khả năng cần `DAC_OVERRIDE`, `SYS_ADMIN` để truy cập cgroups hierarchy, Docker storage và disk stats; cần kiểm tra runtime riêng (tuyệt đối không cấp `privileged: true`). |
-
+| **`cadvisor`** | `privileged: true` (cấu hình hiện tại trên Ubuntu) | Container đang chạy ở chế độ privileged, có phạm vi quyền rộng hơn bộ Linux capabilities mặc định. Đây là ngoại lệ rủi ro cao; không thể coi là đã harden chỉ nhờ `cap_drop`. Chỉ thu hẹp hoặc loại bỏ sau khi kiểm tra collectors, mounts và xác minh runtime; không thay đổi cấu hình Compose trong lượt tài liệu này. |
 *Lưu ý:* Việc áp dụng `cap_drop: [ALL]` là cấu hình tĩnh, chưa qua kiểm chứng runtime bằng lệnh `capsh` hoặc `docker inspect` trên container đang chạy thực tế trên máy Ubuntu. Không thay đổi mount socket hoặc user của proxy trong lượt này; cần xác minh runtime trên Ubuntu.
+
+---
+
+## 7. HƯỚNG DẪN KÍCH HOẠT VÀ KIỂM TRA GIAO DIỆN WEBSITE QUẢNG BÁ SẢN PHẨM
+
+### 7.1. Cấu trúc Theme tùy chỉnh (`website-quang-ba`)
+
+Theme được xây dựng chuyên biệt theo chuẩn Classic Theme của WordPress, đặt tại thư mục:
+`wordpress-theme/website-quang-ba/`
+
+- **`style.css`**: Khai báo metadata nhận diện theme trong WordPress Admin và nhúng stylesheet chính.
+- **`functions.php`**: Khai báo `title-tag`, `post-thumbnails`, `custom-logo`, đăng ký menu điều hướng, enqueue CSS/JS và danh mục 6 sản phẩm mẫu tiêu biểu.
+- **`header.php`**: Header chuẩn HTML5, thương hiệu TechSmart, menu điều hướng responsive và nút CTA "Tư Vấn Ngay".
+- **`footer.php`**: Chân trang hoàn chỉnh 4 cột (thương hiệu đồ án, liên kết nhanh, hỗ trợ demo, huy hiệu hạ tầng DevOps), modal xem chi tiết và container thông báo toast.
+- **`front-page.php`**: Trang chủ quảng bá sản phẩm chuyên nghiệp, bao gồm:
+  1. *Hero Section:* Tiêu đề nổi bật, mô tả giá trị, nút CTA kép và đồ họa minh họa hệ sinh thái thiết bị.
+  2. *Danh mục sản phẩm tiêu biểu (`#san-pham`):* 6 thẻ sản phẩm công nghệ (Smart Hub, UltraSensor, CyberEdge Gateway, VisionAI Cam, PowerGuard UPS, SmartTag) với nhãn nổi bật, giá niêm yết, thông số tóm tắt và nút xem chi tiết.
+  3. *Bộ lọc danh mục (Tabs):* Chuyển đổi mượt mà theo từng dòng thiết bị (Thiết bị trung tâm, Cảm biến, Bảo mật & mạng, Camera AI, Nguồn & phụ kiện).
+  4. *Tính năng vượt trội (`#tinh-nang`):* 4 khối giá trị cốt lõi (Bảo mật đa tầng, Định hướng chuẩn mở IoT, Giám sát Prometheus/Grafana/Loki, Mô hình xử lý cục bộ on-device).
+  5. *Về chúng tôi (`#ve-chung-toi`):* Năng lực nghiên cứu, trải nghiệm người dùng và hạ tầng DevOps.
+  6. *Liên hệ & Tư vấn (`#lien-he`):* Form đăng ký nhận tư vấn và hộp thông tin hỗ trợ kỹ thuật.
+- **`index.php` & `page.php`**: Template dự phòng chuẩn cho bài viết và trang tĩnh, loại bỏ hoàn toàn giao diện thô sơ mặc định.
+- **`assets/images/`**: Toàn bộ hình ảnh minh họa sản phẩm và logo được vẽ dưới dạng vector SVG độc lập, đảm bảo không phụ thuộc internet và không lỗi đường dẫn ảnh.
+- **`screenshot.png`**: Ảnh đại diện preview giao diện trong trang quản trị WordPress Themes.
+
+### 7.2. Phương thức Tích hợp vào Docker Compose
+
+Trong `docker-compose.yml`, thư mục theme được gắn kết dạng bind mount vào đường dẫn themes của WordPress:
+```yaml
+services:
+  wordpress:
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./wordpress-theme/website-quang-ba:/var/www/html/wp-content/themes/website-quang-ba:ro
+```
+- **Ý nghĩa kỹ thuật:**
+  - `wordpress_data` tiếp tục lưu trữ toàn bộ mã nguồn core, database config và upload.
+  - Mount `./wordpress-theme/website-quang-ba` thêm thư mục theme vào vị trí `/var/www/html/wp-content/themes/website-quang-ba` với cờ `:ro` (chỉ đọc), bảo vệ mã nguồn theme khỏi bị sửa đổi trái phép từ bên trong container.
+
+### 7.3. Quy trình Kích hoạt Theme trên WordPress
+
+> [!IMPORTANT]
+> Việc mount thư mục theme vào container **không đồng nghĩa với việc theme sẽ tự động kích hoạt**. Quản trị viên cần thực hiện một trong hai cách sau để kích hoạt theme:
+
+#### Cách 1: Kích hoạt qua Giao diện WordPress Admin (Khuyến nghị)
+1. Truy cập trang quản trị qua Nginx Reverse Proxy: `https://shop.local/wp-admin/` (hoặc `https://localhost/wp-admin/`).
+2. Đăng nhập bằng tài khoản quản trị WordPress đã khởi tạo ở Giai đoạn 2.
+3. Trên thanh menu bên trái, chọn **Appearance (Giao diện)** -> **Themes (Giao diện)**.
+4. Tìm theme mang tên **Website Quảng Bá Sản Phẩm - Đề Tài 03** (có ảnh đại diện TechSmart).
+5. Bấm nút **Activate (Kích hoạt)**.
+
+#### Cách 2: Kích hoạt nhanh qua dòng lệnh (WP-CLI)
+Nếu môi trường container có sẵn công cụ WP-CLI, chạy lệnh:
+```bash
+docker compose exec wordpress wp theme activate website-quang-ba --allow-root
+```
+
+### 7.4. Các Bước Kiểm tra Sau Triển khai (Checklist)
+
+Sau khi kích hoạt theme, mở trình duyệt truy cập `https://shop.local/` và kiểm tra các tiêu chí:
+1. **Kiểm tra Header & Navigation:**
+   - Logo hiển thị rõ ràng, thanh điều hướng ghim (sticky) trên cùng màn hình khi cuộn trang.
+   - Nhấp vào các liên kết "Trang Chủ", "Sản Phẩm", "Tính Năng", "Về Chúng Tôi", "Liên Hệ" cuộn êm (smooth scroll) đến đúng từng section.
+2. **Kiểm tra Responsive trên Thiết bị Di động:**
+   - Thu nhỏ cửa sổ trình duyệt hoặc bật F12 Device Emulation (iPhone / iPad / Android).
+   - Xác nhận giao diện không tràn ngang (`overflow-x: hidden`).
+   - Nút menu hamburger trên di động mở/đóng menu điều hướng chính xác.
+3. **Kiểm tra Bộ lọc Sản phẩm (Tabs):**
+   - Nhấp các nút danh mục: "Tất Cả", "Thiết Bị Trung Tâm", "Cảm Biến", "Bảo Mật & Mạng", "Camera An Ninh", "Nguồn & Phụ Kiện".
+   - Các thẻ sản phẩm tương ứng xuất hiện/ẩn mượt mà.
+4. **Kiểm tra Modal Xem Chi Tiết:**
+   - Bấm nút "Xem Chi Tiết" trên bất kỳ sản phẩm nào.
+   - Hộp thoại Modal bật lên hiển thị đầy đủ tên, giá niêm yết, mô tả chi tiết và bảng thông số kỹ thuật.
+   - Đóng modal bằng nút `X`, click ra ngoài vùng backdrop hoặc nhấn phím `ESC`.
+5. **Kiểm tra Form Đăng Ký Tư Vấn (Demo UI):**
+   - Nhập thông tin và bấm "Gửi Thử Nghiệm (Demo Giao Diện)".
+   - Thông báo Toast hiển thị phản hồi tức thì giải thích rõ đây là mô phỏng giao diện (dữ liệu chưa gửi/lưu trữ lên máy chủ) và form tự động reset.
+6. **Xác nhận Loại bỏ Giao diện Mặc định:**
+   - Trang chủ hiển thị trọn vẹn website quảng bá sản phẩm thương mại hiện đại, không còn xuất hiện các bài viết mặc định "Hello world!" hay trang mẫu "Sample Page".

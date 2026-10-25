@@ -69,6 +69,7 @@ services:
         }
     volumes:
       - wordpress_data:/var/www/html
+      - ./wordpress-theme/website-quang-ba:/var/www/html/wp-content/themes/website-quang-ba:ro
     networks:
       - frontend-net
       - backend-net

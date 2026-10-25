@@ -1,0 +1,23 @@
+/*
+Theme Name: Website Quảng Bá Sản Phẩm - Đề Tài 03
+Theme URI: https://github.com/dtc245200059-eng
+Author: Nông Quốc Tuấn - DTC245200059 (KTPM K23C)
+Author URI: https://github.com/dtc245200059-eng
+Description: Giao diện chuyên nghiệp, hiện đại, chuẩn responsive được thiết kế riêng cho Website Quảng bá Sản phẩm WordPress. Đồ án môn học: Triển khai và Quản trị Hệ thống Phần mềm (Đề tài số 03).
+Version: 1.0.0
+Requires at least: 6.0
+Tested up to: 6.7
+Requires PHP: 8.0
+License: GNU General Public License v2 or later
+License URI: http://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: website-quang-ba
+Tags: product-showcase, responsive, modern, ecommerce-ready, custom-menu, featured-images
+
+Bản quyền (c) 2026 Nông Quốc Tuấn - DTC245200059. Mọi quyền được bảo lưu.
+*/
+
+/*
+ * Nhúng stylesheet hệ thống chính từ thư mục assets/css/main.css
+ * File này đóng vai trò metadata header cho WordPress nhận diện theme.
+ */
+@import url('assets/css/main.css');
